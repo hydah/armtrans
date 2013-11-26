@@ -19,3 +19,11 @@ qemu-options.def
 qmp-commands.h
 qapi-types.h
 qapi-visit.h
+config-host.h-timestamp
+config-host.mak
+libqemustub.a
+libuser/
+qapi-types.c
+qapi-visit.c
+trace.c
+trace.c-timestamp
