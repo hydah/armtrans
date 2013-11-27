@@ -511,6 +511,7 @@ static void ld_st_cpsr(CPUArchState *env, Field rs_sr, Field st_ld,  Field rd, F
 int cc_prolog_init(CPUArchState *env)
 {
     Field off;
+    int size;
 
     //env->cc_ptr = code_gen_prologue;
     env->cc_ptr = arm_code_cache;
@@ -563,8 +564,14 @@ int cc_prolog_init(CPUArchState *env)
 
     /* preserve the space for context */
     env->cc_ptr += 0xff;
+    size = env->cc_ptr - arm_code_cache;
 
-    log_target_disas(env, (uint32_t)arm_code_cache, 512, 0);
+    if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)) {
+        qemu_log("ARM-prologue/epilogue: [size=%d]\n", size);
+        log_target_disas(env, (uint32_t)arm_code_cache, size, 0);
+        qemu_log("\n");
+        qemu_log_flush();
+    }
 
     return 0;
 }
@@ -586,14 +593,16 @@ static int arm_gen_code(CPUArchState *env, TranslationBlock *tb)
         pc++;
     } while(end != true);
 
-    size = (env->cc_ptr - cc_ptr_start) * 4;
+    size = (env->cc_ptr - cc_ptr_start);
 
+#ifdef DEBUG_DISAS
     if (qemu_loglevel_mask(CPU_LOG_TB_OUT_ASM)) {
         qemu_log("ARM: [size=%d]\n", size);
         log_target_disas(env, (uint32_t)cc_ptr_start, size, 0);
         qemu_log("\n");
         qemu_log_flush();
     }
+#endif
  
     return 0;
 }
@@ -626,7 +635,7 @@ int cpu_gen_code(CPUArchState *env, TranslationBlock *tb, int *gen_code_size_ptr
 
     gen_intermediate_code(env, tb);
 
-    arm_gen_code(env, tb);
+    //arm_gen_code(env, tb);
 
     /* generate machine code */
     gen_code_buf = tb->tc_ptr;
