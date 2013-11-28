@@ -512,59 +512,67 @@ int cc_prolog_init(CPUArchState *env)
 {
     Field off;
     int size;
+    Inst *sp_tmp, *tpc;
+    Inst *patch_reg, *patch_cspr;
 
     //env->cc_ptr = code_gen_prologue;
     env->cc_ptr = arm_code_cache;
-    AT_DBG("prologue init\n");
-    
-    /* mov r0, r1. FIXME: mov the 2nd parameter to 1st */
-    cemit_datapro_reg(env, OP_MOV, REG_R0, 0, REG_R1, 0, 0);
+    /*store some data in arm_code_cache + 50 */
+    tpc = arm_code_cache + 50;
+    fprintf(stderr, "tps is %x\n", tpc);
 
-    /* preserve armtrans's environment */
-    off = 0x1f8;
-    cemit_datatran_imm(env, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_R0, REG_PC, off);
-    ld_st_gregs(env, TRAN_ST, REG_R4, REG_PC, off);
-    
-    off = 0x1f4;
-    ld_st_cpsr(env, CPSR_STOR_ALL, TRAN_ST, REG_R0, REG_PC, off);
-    
-    /* restore cc's environment! */
-    off = 0x230;
+    sp_tmp = tpc + 1;;
+    patch_reg = sp_tmp + 1;
+    patch_cspr = patch_reg + 15;
+
+    AT_DBG("prologue init\n");
+
+    /* prologue */
+
+    /* bakeup armtrans's context */
+    /* str REG_R1，(tpc) */
+    off = (tpc - env->cc_ptr - 2) * 4;
+    cemit_datatran_imm(env, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_R1, REG_PC, off);
+    /* stmdb sp!, {r4-r12, lr} */
+    code_emit32(env->cc_ptr, (COND_AL << 28) | 0x092d5ff0);
+    /* str REG_SP, (sp_tmp) */
+    off = (sp_tmp - env->cc_ptr - 2) * 4;
+    cemit_datatran_imm(env, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_SP, REG_PC, off);
+    /* restore cc's context! */
+    off = (patch_cspr - env->cc_ptr - 2) * 4;
     ld_st_cpsr(env, CPSR_RTOS_ALL, TRAN_LD, REG_R0, REG_PC, off);
-    off = 0x1ec;
+
+    off = (patch_reg - env->cc_ptr - 2) * 4;
     ld_st_gregs(env, TRAN_LD, REG_R0, REG_PC, off);
     
     /* jump to code cache */
-    off = 0x17c;
+    off = (tpc - env->cc_ptr - 2) * 4;
     cemit_datatran_imm(env, TRAN_LD, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_PC, REG_PC, off);
     tb_ret_addr = env->cc_ptr;
-    
 
     /* epilogue */
-    /* preserve cx's environment. Note r0 is stored on [sp] now. */
-    off = 0x1b0;
-    ld_st_gregs(env, TRAN_ST, REG_R1, REG_PC, off);
+    /* preserve cc's environment. Note r0 is stored on [sp] now. */
+    off = (patch_reg - env->cc_ptr - 2) * 4;
+    ld_st_gregs(env, TRAN_ST, REG_R0, REG_PC, off);
     
     cemit_pop(env, REG_R1); 	/* use r1 to mov the [sp] to context[r0] */
-    off = 0x170;
+    off = (patch_reg - env->cc_ptr - 2) * 4;
     cemit_datatran_imm(env, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_R1, REG_PC, off);
     
-    off = 0x1a4;
+    off = (patch_cspr - env->cc_ptr - 2) * 4;
     ld_st_cpsr(env, CPSR_STOR_ALL, TRAN_ST, REG_R1, REG_PC, off);
     
-    /* restore armtrans's environment */
-    off = 0x160;
-    ld_st_cpsr(env, CPSR_RTOS_ALL, TRAN_LD, REG_R1, REG_PC, off);
-    
-    off = 0x12c;
-    ld_st_gregs(env, TRAN_LD, REG_R4, REG_PC, off);
-    
-    /* jump back to translator */
-    cemit_datapro_reg(env, OP_MOV, REG_PC, 0, REG_LR, 0, 0);
+    /* ldr REG_SP, (sp_tmp) */
+    off = (sp_tmp - env->cc_ptr - 2) * 4;
+    cemit_datatran_imm(env, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_SP, REG_PC, off);
+
+    /* ldmdb sp!, {r4-r12, pc} */
+    code_emit32(env->cc_ptr, (COND_AL << 28) | 0x08bd9ff0);
+
 
     /* preserve the space for context */
-    env->cc_ptr += 0xff;
-    size = env->cc_ptr - arm_code_cache;
+    env->cc_ptr = arm_code_cache + 67 + 1;
+    size = (env->cc_ptr - arm_code_cache) * 4;
 
     if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)) {
         qemu_log("ARM-prologue/epilogue: [size=%d]\n", size);
