@@ -23,16 +23,16 @@ struct decode_s {
 	uint32_t Rd;
 	uint32_t Rc;
 	uint32_t Rm;
-	uint32_t t;
-	uint32_t r;
-	uint32_t b;
-	uint32_t off;
-	uint32_t p;
-	uint32_t q;
+    uint32_t t;
+    uint32_t r;
+    uint32_t b;
+    uint32_t off;
+    uint32_t p;
+    uint32_t q;
 
-        Inst *pc;
-        bool (*fun)(CPUArchState *env, decode_t *ds);
-	bool is_jmp;
+    Inst *pc;
+    bool (*fun)(TCGContext *s, decode_t *ds);
+    bool is_jmp;
 };
 
 enum OP_NAME {
@@ -71,17 +71,18 @@ enum REG_NAME {
 	REG_SP,
 	REG_LR,
 	REG_PC = 15,
-        REG_NA = 0xdeadbeaf,
+    REG_NA = 0xdeadbeaf,
 };
 
 #define REG_NUM		16
 
 int do_decode(Inst *pc, decode_t *ds);
-bool emit_normal(CPUArchState *env, decode_t *ds);
-bool emit_branch(CPUArchState *env, decode_t *ds);
-bool emit_exception(CPUArchState *env, decode_t *ds);
-bool emit_null(CPUArchState *env, decode_t *ds);
-bool emit_br_ind(CPUArchState *env, decode_t *ds);
+bool emit_normal(TCGContext *s, decode_t *ds);
+bool emit_branch(TCGContext *s, decode_t *ds);
+bool emit_exception(TCGContext *s, decode_t *ds);
+bool emit_null(TCGContext *s, decode_t *ds);
+bool emit_br_ind(TCGContext *s, decode_t *ds);
+int disas_insn(Inst *pc, decode_t *ds);
 
 #ifdef DEBUG_AT
     #define AT_DBG(...) fprintf(stderr, __VA_ARGS__);

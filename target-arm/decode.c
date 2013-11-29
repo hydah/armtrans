@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include "translate-all.h"
 #include "decode.h"
 #include "emit.h"
 
@@ -335,20 +336,20 @@ static int branch(Inst inst, decode_t *ds)
 
 static void ds_init(decode_t *ds, Inst *pc)
 {
-        Inst inst;
+    Inst inst;
 
-        inst = *pc;
+    inst = *pc;
 
-        ds->pc = pc;
-	ds->cond = BITS(inst, 28, 4);
-	ds->op = BITS(inst, 25, 3);
+    ds->pc = pc;
+    ds->cond = BITS(inst, 28, 4);
+    ds->op = BITS(inst, 25, 3);
 
-        /* init field */
-        ds->fun = emit_null;
-        ds->Rn = REG_NA;
-        ds->Rd = REG_NA;
-        ds->Rm = REG_NA;
-        ds->Rl = REG_NA;
+    /* init field */
+    ds->fun = emit_null;
+    ds->Rn = REG_NA;
+    ds->Rd = REG_NA;
+    ds->Rm = REG_NA;
+    ds->Rl = REG_NA;
 }
 
 static int (*decode_fun[8])(Inst, decode_t *) = {
@@ -362,27 +363,27 @@ static int (*decode_fun[8])(Inst, decode_t *) = {
 	co_data_pro,
 };
 
-int do_decode(Inst *pc, decode_t *ds)
+int disas_insn(Inst *pc, decode_t *ds)
 {
-        Inst inst;
-	int ret;
+    Inst inst;
+    int ret;
 
-        if(pc > (Inst *)0xffff0000) {
-		ds->pc = pc;
-        	ds->fun = emit_exception;
-		return 0;
-	}
+    if(pc > (Inst *)0xffff0000) {
+        ds->pc = pc;
+        ds->fun = emit_exception;
+        return 0;
+    }
 
-        ds_init(ds, pc);
+    ds_init(ds, pc);
 
-	inst = *pc;
+    inst = *pc;
 
-	ret = decode_fun[ds->op](inst, ds);
+    ret = decode_fun[ds->op](inst, ds);
 
-	if(ds->fun == emit_null) {
-		AT_ERR("op=0x%x inst=0x%x pc=%p\n", ds->op, inst, pc);
-	}
+    if(ds->fun == emit_null) {
+        AT_ERR("op=0x%x inst=0x%x pc=%p\n", ds->op, inst, pc);
+    }
 
-	return ret;
+    return ret;
 }
 

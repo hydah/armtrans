@@ -82,8 +82,13 @@ struct arm_boot_info;
 struct TranslationBlock;
 
 typedef struct CPUARMState {
+    uint32_t *sp_tmp;
+    uint32_t *tpc;
+    uint32_t *regs;
+    uint32_t *cpsr;
+
     /* Regs for current mode.  */
-    uint32_t regs[16];
+    //uint32_t regs[16];
     /* Frequently accessed CPSR bits are stored separately for efficiency.
        This contains all the other bits.  Use cpsr_{read,write} to access
        the whole CPSR.  */
@@ -235,7 +240,6 @@ typedef struct CPUARMState {
     const struct arm_boot_info *boot_info;
 
     Inst *cc_ptr;
-    struct TranslationBlock *cur_tb;
 } CPUARMState;
 
 #include "cpu-qom.h"

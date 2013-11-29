@@ -1271,10 +1271,12 @@ ARMCPU *cpu_arm_init(const char *cpu_model)
     env->cpu_model_str = cpu_model;
     arm_cpu_realize(cpu);
 
+#if 0
     if (tcg_enabled() && !inited) {
         inited = 1;
         arm_translate_init();
     }
+#endif
 
     cpu_reset(CPU(cpu));
     if (arm_feature(env, ARM_FEATURE_NEON)) {

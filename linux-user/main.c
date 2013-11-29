@@ -473,7 +473,7 @@ done:
     return segv;
 }
 
-int cc_prolog_init(CPUARMState *env);
+int cc_prolog_init(CPUARMState *env, TCGContext *s);
 
 void cpu_loop(CPUARMState *env)
 {
@@ -482,7 +482,7 @@ void cpu_loop(CPUARMState *env)
     target_siginfo_t info;
     uint32_t addr;
 
-    cc_prolog_init(env);
+    cc_prolog_init(env, &tcg_ctx);
 
     for(;;) {
         cpu_exec_start(env);
@@ -1268,7 +1268,7 @@ int main(int argc, char **argv, char **envp)
     /* Now that we've loaded the binary, GUEST_BASE is fixed.  Delay
        generating the prologue until now so that the prologue can take
        the real value of GUEST_BASE into account.  */
-    tcg_prologue_init(&tcg_ctx);
+    //tcg_prologue_init(&tcg_ctx);
 #endif
 
     {

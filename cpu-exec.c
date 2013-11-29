@@ -23,7 +23,6 @@
 #include "qemu-barrier.h"
 #include "qtest.h"
 
-#include "decode.h"
 
 int tb_invalidated_flag;
 
@@ -137,7 +136,6 @@ int cpu_exec(CPUArchState *env)
                    which will be handled outside the cpu execution
                    loop */
                 ret = env->exception_index;
-                AT_DBG("%d pc=0x%x\n", ret, env->regs[15]);
                 break;
             }
 
