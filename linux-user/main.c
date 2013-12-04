@@ -482,7 +482,6 @@ void cpu_loop(CPUARMState *env)
     target_siginfo_t info;
     uint32_t addr;
 
-    cc_prolog_init(env, &tcg_ctx);
 
     for(;;) {
         cpu_exec_start(env);
@@ -1270,6 +1269,7 @@ int main(int argc, char **argv, char **envp)
        the real value of GUEST_BASE into account.  */
     //tcg_prologue_init(&tcg_ctx);
 #endif
+    cc_prolog_init(env, &tcg_ctx);
 
     {
         int i;

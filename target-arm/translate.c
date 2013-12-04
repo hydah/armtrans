@@ -474,7 +474,9 @@ bool emit_normal(TCGContext *s, decode_t *ds)
         cemit_pc_rel(s, ds);
     } else {
         /* copy inst */
-        *(uint32_t *)s->code_ptr = *ds->pc;
+        
+        fprintf(stderr, "s->code_ptr is %x.[%d@%s]\n", s->code_ptr, __LINE__, __FUNCTION__);
+        *s->code_ptr = *ds->pc;
         s->code_ptr++;
     }
 
@@ -540,7 +542,7 @@ static void ld_st_gregs(TCGContext *s, Field st_ld, Field rd, Field rn, Field of
     Field wb = ADDR_NO_WB;
     Field dir = ADDR_INC;
     Field i = 0;
-    for (i = rd; i <= 14; i++) {
+    for (i = rd; i <= 15; i++) {
         cemit_datatran_imm(s, st_ld, pre_post, wb, dir, i, rn, off);
     }
 }
@@ -633,7 +635,7 @@ int cc_prolog_init(CPUARMState *env, TCGContext *s)
     env->tpc = (uint32_t *)code_gen_prologue + 50;
     env->sp_tmp = env->tpc + 1;
     env->regs = env->sp_tmp + 1;
-    env->cpsr = env->regs + 15; 
+    env->cpsr = env->regs + 16; 
 
     AT_DBG("prologue init\n");
     /* prologue */
@@ -653,7 +655,7 @@ int cc_prolog_init(CPUARMState *env, TCGContext *s)
                        (tcg_target_ulong)s->code_ptr);
 
     /* preserve the space for context */
-    s->code_ptr = s->code_buf + (67 + 1);
+    s->code_ptr = s->code_buf + (68 + 1);
     size = s->code_ptr - s->code_buf;
     size *= 4;
     if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)) {
@@ -674,15 +676,23 @@ int arm_gen_code(CPUArchState *env, TCGContext *s, TranslationBlock *tb)
     size_t cc_size;
     size_t src_size;
     bool end;
+    uint8_t *temp;
 
     s->cur_tb = tb;
     s->code_ptr = (uint32_t *)tb->tc_ptr;
+    fprintf(stderr, "s->code_ptr is %x.[%d@%s]\n", s->code_ptr, __LINE__, __FUNCTION__);
+    fprintf(stderr, "tb->pc is %x.[%d@%s]\n", tb->pc, __LINE__, __FUNCTION__);
     pc = (Inst *)tb->pc;
+    temp = (uint8_t *)tb->pc;
     cc_ptr_start = s->code_ptr;
+    fprintf(stderr, "tb->pc is %x.[%d@%s]\n", *temp++, __LINE__, __FUNCTION__);
+    fprintf(stderr, "tb->pc is %x.[%d@%s]\n", *temp++, __LINE__, __FUNCTION__);
+    fprintf(stderr, "tb->pc is %x.[%d@%s]\n", *temp++, __LINE__, __FUNCTION__);
+    fprintf(stderr, "tb->pc is %x.[%d@%s]\n", *temp++, __LINE__, __FUNCTION__);
 
     do {
     	disas_insn(pc, ds);
-        end = ds->fun(env, ds);
+        end = ds->fun(s, ds);
         pc++;
     } while(end != true);
 
@@ -692,7 +702,7 @@ int arm_gen_code(CPUArchState *env, TCGContext *s, TranslationBlock *tb)
 
 #ifdef DEBUG_DISAS
     if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)) {
-        qemu_log("OUT: [size=%d]\n", src_size);
+        qemu_log("IN: [size=%d]\n", src_size);
         log_disas((Inst *)tb->pc, src_size);
         qemu_log("\n");
         qemu_log_flush();
