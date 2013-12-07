@@ -10,7 +10,7 @@
 
 #define code_emit32(code_emit_ptr, val) do{ \
         *(uint32_t *)(code_emit_ptr) = (val); \
-        (code_emit_ptr) += 1; \
+        (code_emit_ptr) += 4; \
 } while(0)
 
 #endif

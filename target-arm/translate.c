@@ -353,9 +353,12 @@ static void cemit_pc_rel(TCGContext *s, decode_t *ds)
     cemit_pop(s, Rt);
 }
 
-static void cemit_exit_tb(TCGContext *s, Inst *target, TranslationBlock *tb)
+static void cemit_exit_tb(TCGContext *s, Inst *target)
 {
     Inst *patch_pc;
+    struct TranslationBlock *tb;
+    
+    tb = s->cur_tb;
 
     /* push r0 */
     cemit_push(s, REG_R0);
@@ -371,20 +374,27 @@ static void cemit_exit_tb(TCGContext *s, Inst *target, TranslationBlock *tb)
     code_emit32(s->code_ptr, (Inst)target);
 }
 
-static void cemit_exit_tb_ind(TCGContext *s, Field Rt, TranslationBlock *tb)
+static void cemit_exit_tb_ind(TCGContext *s, uint32_t Rt)
 {
+    TranslationBlock *tb;
     Inst *patch_pc1, *patch_pc2;
 
+    tb = s->cur_tb;
     /* str Rt, [pc, off] */
     patch_pc1 = s->code_ptr;
-    cemit_datatran_imm(s, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, 
+    cemit_datatran_imm(s, TRAN_LD, INDEX_PRE, ADDR_NO_WB, ADDR_INC, 
                       Rt, REG_PC, NEED_PATCH);
 
-    if(Rt != REG_R0) {
-        /* pop Rt */
-        cemit_pop(s, Rt);
+    if (tb->exit_tb_nopush) { 
         /* push r0 */
         cemit_push(s, REG_R0);
+    } else {
+        if(Rt != REG_R0) {
+            /* pop Rt */
+            cemit_pop(s, Rt);
+            /* push r0 */
+            cemit_push(s, REG_R0);
+        }
     }
 
     /* add r0, pc, off */
@@ -401,6 +411,47 @@ static void cemit_exit_tb_ind(TCGContext *s, Field Rt, TranslationBlock *tb)
     s->code_ptr += 4;
 }
 
+static void cemit_exit_tb_msr(TCGContext *s, decode_t *ds, uint32_t Rt)
+{
+    TranslationBlock *tb;
+    Inst *patch_pc1, *patch_pc2;
+    uint32_t next_pc;
+
+    tb = s->cur_tb;
+    tb->set_cpsr = 1;
+    next_pc = ds->pc + 4;
+
+    /* str Rt, [pc, off] */
+    patch_pc1 = s->code_ptr;
+    cemit_datatran_imm(s, TRAN_LD, INDEX_PRE, ADDR_NO_WB, ADDR_INC, 
+                      Rt, REG_PC, NEED_PATCH);
+
+    if (tb->exit_tb_nopush) { 
+        /* push r0 */
+        cemit_push(s, REG_R0);
+    } else {
+        if(Rt != REG_R0) {
+            /* pop Rt */
+            cemit_pop(s, Rt);
+            /* push r0 */
+            cemit_push(s, REG_R0);
+        }
+    }
+
+    /* add r0, pc, off */
+    patch_pc2 = s->code_ptr;
+    cemit_datapro_imm(s, OP_ADD, REG_R0, REG_PC, 0, NEED_PATCH);
+
+    /* back to translator */
+    cemit_branch(s, COND_AL, s->code_ptr, tb_ret_addr);
+
+    modify_pro_imm(patch_pc2, s->code_ptr);
+    /* store tb in code cache */
+    code_emit32(s->code_ptr, (Inst)tb);
+    code_emit32(s->code_ptr, (next_pc + 4));
+    modify_tran_imm(patch_pc1, s->code_ptr);
+    s->code_ptr += 4;
+}
 #if 0
 static void cemit_exit_tb(CPUArchState *env, Inst *target, TranslationBlock *tb)
 {
@@ -691,6 +742,13 @@ int arm_gen_code(CPUArchState *env, TCGContext *s, TranslationBlock *tb)
     fprintf(stderr, "tb->pc is %x.[%d@%s]\n", *temp++, __LINE__, __FUNCTION__);
 
     do {
+        /*should decide current cpu state: thumb or arm*/
+        if (env->thumb) {
+            disas_thumb_insn();
+        } else {
+            disas_arm_insn();
+        }
+
     	disas_insn(pc, ds);
         end = ds->fun(s, ds);
         pc++;

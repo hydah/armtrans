@@ -58,7 +58,7 @@ struct TCGContext {
     uint16_t *tb_jmp_offset; /* != NULL if USE_DIRECT_JUMP */
 
     struct TranslationBlock *cur_tb;
-    uint32_t *code_ptr;
+    uint8_t *code_ptr;
 };
 
 extern TCGContext tcg_ctx;

@@ -7,7 +7,10 @@
 typedef struct decode_s decode_t;
 struct decode_s {
 	uint32_t cond;
+    uint32_t index;
 	uint32_t op;
+    uint32_t insn;
+
 	uint32_t a; /* op */
 	uint32_t P;
 	uint32_t U;
