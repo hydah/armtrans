@@ -9,7 +9,7 @@ struct decode_s {
 	uint32_t cond;
     uint32_t index;
 	uint32_t op;
-    uint32_t insn;
+    uint32_t inst;
 
 	uint32_t a; /* op */
 	uint32_t P;
@@ -33,9 +33,19 @@ struct decode_s {
     uint32_t p;
     uint32_t q;
 
-    Inst *pc;
+    uint8_t *pc;
     bool (*fun)(TCGContext *s, decode_t *ds);
     bool is_jmp;
+    uint32_t src_regpos_list;
+    uint32_t dst_regpos_list;
+    int Rd, Rd_pos;
+    int Rd2, Rd2_pos;
+    int Rm, Rm_pos;
+    int Rn, Rn_pos;
+    int Rs, Rs_pos;
+    uint32_t rd_num;
+    uint32_t rs_num;
+    uint32_t reg_list;
 };
 
 enum OP_NAME {
