@@ -30,7 +30,7 @@ static int swap(Inst inst, decode_t *ds)
 	ds->Rd = BITS(inst, 12, 4);
 	ds->Rm = BITS(inst, 0, 4);
 
-	ds->fun = emit_normal;
+	ds->func = emit_normal;
 
 	AT_DBG("swap : %x %x %x %x\n",ds->B, ds->Rn, ds->Rd, ds->Rm);
 	return 0;
@@ -55,7 +55,7 @@ static int mult(Inst inst, decode_t *ds)
 		AT_DBG("mult use R15 error\n");return 1;
 	}
 
-	ds->fun = emit_normal;
+	ds->func = emit_normal;
 
 	AT_DBG("mult : %x %x %x %x %x %x\n",ds->A, ds->S, ds->Rd, ds->Rn, ds->Rs, ds->Rm);
 	return 0;
@@ -80,7 +80,7 @@ static int longmult(Inst inst, decode_t *ds)
 		AT_DBG("longmult use R15 error\n");return 1;
 	}
 
-	ds->fun = emit_normal;
+	ds->func = emit_normal;
 
 	AT_DBG("longmult : %x %x %x %x %x %x %x\n",ds->U, ds->A, ds->S, ds->Rh, ds->Rl, ds->Rs, ds->Rm);
 	return 0;
@@ -88,7 +88,7 @@ static int longmult(Inst inst, decode_t *ds)
 
 static int msr_mrs(Inst inst, decode_t *ds)
 {
-	ds->fun = emit_exception;
+	ds->func = emit_exception;
 
 	AT_DBG("msr_mrs do nth\n");
 	return 0;
@@ -173,12 +173,12 @@ static int reg_data_pro(Inst inst, decode_t *ds)
 
 	if((BITS(ds->t, 0, 1) == 0x1) && (BITS(inst, 7, 1) == 0x1)) {
 		AT_ERR("reg Rc error: %p:0x%x\n", ds->pc, inst); /* FIXME: not a error,just unfinished; */
-                ds->fun = emit_normal;
+                ds->func = emit_normal;
 		return 1;
 	}
 
-        if(ds->Rd == REG_PC) ds->fun = emit_br_ind;
-	else ds->fun = emit_normal;
+        if(ds->Rd == REG_PC) ds->func = emit_br_ind;
+	else ds->func = emit_normal;
 
 	AT_DBG("reg_data_pro : %s Rn:%x Rd:%x Rm:%x S:%x ",act[ds->a], ds->Rn, ds->Rd, ds->Rm, ds->S);
 	out_t(ds->Rc,ds->t);
@@ -209,8 +209,8 @@ static int imd_data_pro(Inst inst, decode_t *ds)
 		return 1;
 	}
 
-        if(ds->Rd == REG_PC) ds->fun = emit_br_ind;
-	else ds->fun = emit_normal;
+        if(ds->Rd == REG_PC) ds->func = emit_br_ind;
+	else ds->func = emit_normal;
 
 	AT_DBG("imd_data_pro : %s Rn:%x Rd:%x S:%x r:%x b:%x\n",act[ds->a], ds->Rn, ds->Rd, ds->S, ds->r, ds->b);
 	return 0;
@@ -227,8 +227,8 @@ static int imd_data_tra(Inst inst, decode_t *ds)
 	ds->Rd = BITS(inst, 12, 4);
 	ds->off = BITS(inst, 0, 8);
 
-        if(ds->Rd == REG_PC) ds->fun = emit_br_ind;
-	else ds->fun = emit_normal;
+        if(ds->Rd == REG_PC) ds->func = emit_br_ind;
+	else ds->func = emit_normal;
 
 	AT_DBG("imd_data_tra : P:%x U:%x B:%x W:%x L:%x Rn:%x Rd:%x o:%x\n",ds->P, ds->U, ds->B, ds->W, ds->L, ds->Rn, ds->Rd, ds->off);
 
@@ -252,8 +252,8 @@ static int reg_data_tra(Inst inst, decode_t *ds)
 	ds->t = BITS(inst, 5, 2);
 	ds->Rm = BITS(inst, 0, 4);
 
-        if(ds->Rd == REG_PC) ds->fun = emit_br_ind;
-	else ds->fun = emit_normal;
+        if(ds->Rd == REG_PC) ds->func = emit_br_ind;
+	else ds->func = emit_normal;
 
 	AT_DBG("reg_data_tra : P:%x U:%x B:%x W:%x L:%x Rn:%x Rd:%x Rm:%x ",ds->P, ds->U, ds->B, ds->W, ds->L, ds->Rn, ds->Rd,  ds->Rm);
 	out_t(ds->Rc, ds->t);
@@ -263,7 +263,7 @@ static int reg_data_tra(Inst inst, decode_t *ds)
 
 static int co_mrc_mcr(Inst inst, decode_t *ds)
 {
-	ds->fun = emit_exception;
+	ds->func = emit_exception;
 
 	AT_DBG("co_mrc_mcr do nth\n");
 	return 0;
@@ -271,7 +271,7 @@ static int co_mrc_mcr(Inst inst, decode_t *ds)
 
 static int co_ldc_stc(Inst inst, decode_t *ds)
 {
-	ds->fun = emit_exception;
+	ds->func = emit_exception;
 
 	AT_DBG("co_ldc_stc do nth\n");
 	return 0;
@@ -279,7 +279,7 @@ static int co_ldc_stc(Inst inst, decode_t *ds)
 
 static int soft_inter(Inst inst, decode_t *ds)
 {
-	ds->fun = emit_exception;
+	ds->func = emit_exception;
 
 	AT_DBG("soft_inter do nth\n");
 	return 0;
@@ -297,7 +297,7 @@ static int co_data_pro(Inst inst, decode_t *ds)
 	ds->q = BITS(inst, 5, 3);
 	ds->Rm = BITS(inst, 0, 4);
 
-        ds->fun = emit_exception;
+        ds->func = emit_exception;
 
 	AT_DBG("co_data_pro : %x %x %x %x %x %x\n",ds->off, ds->Rn, ds->Rd, ds->p, ds->q, ds->Rm);
 	return 0;
@@ -314,9 +314,9 @@ static int blk_data_tra(Inst inst, decode_t *ds)
 	ds->Rl = BITS(inst, 0, 16);
 
         if(BITS(ds->Rl, REG_PC, 1) == 0x1) {
-		ds->fun = emit_br_ind;
+		ds->func = emit_br_ind;
 	} else {
-		ds->fun = emit_normal;
+		ds->func = emit_normal;
 	}
 
 	AT_DBG("blk_data_tra : P:%x U:%x S:%x W:%x L:%x Rn:%x Rl:%x\n",ds->P, ds->U, ds->S, ds->W, ds->L, ds->Rn, ds->Rl);
@@ -328,7 +328,7 @@ static int branch(Inst inst, decode_t *ds)
 	ds->L = BITS(inst, 24, 1);
 	ds->off = BITS(inst, 0, 24);
 
-	ds->fun = emit_branch;
+	ds->func = emit_branch;
 
 	AT_DBG(stderr, "branch\n");
 	return 0;
@@ -345,7 +345,7 @@ static void ds_init(decode_t *ds, Inst *pc)
     ds->op = BITS(inst, 25, 3);
 
     /* init field */
-    ds->fun = emit_null;
+    ds->func = emit_null;
     ds->Rn = REG_NA;
     ds->Rd = REG_NA;
     ds->Rm = REG_NA;
@@ -370,7 +370,7 @@ int disas_insn(Inst *pc, decode_t *ds)
 
     if(pc > (Inst *)0xffff0000) {
         ds->pc = pc;
-        ds->fun = emit_exception;
+        ds->func = emit_exception;
         return 0;
     }
 
@@ -380,7 +380,7 @@ int disas_insn(Inst *pc, decode_t *ds)
 
     ret = decode_fun[ds->op](inst, ds);
 
-    if(ds->fun == emit_null) {
+    if(ds->func == emit_null) {
         AT_ERR("op=0x%x inst=0x%x pc=%p\n", ds->op, inst, pc);
     }
 

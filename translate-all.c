@@ -62,13 +62,14 @@ int cpu_gen_code(CPUArchState *env, TranslationBlock *tb, int *gen_code_size_ptr
     TCGContext *s = &tcg_ctx;
     int gen_code_size;
 
-    gen_code_size = arm_gen_code(env, s, tb);
+    gen_code_size = ARM_gen_code(env, s, tb);
     *gen_code_size_ptr = gen_code_size;
 
 #ifdef DEBUG_DISAS
     if (qemu_loglevel_mask(CPU_LOG_TB_OUT_ASM)) {
         qemu_log("OUT: [size=%d]\n", gen_code_size);
-        log_disas(tb->tc_ptr, gen_code_size);
+        log_target_disas(env, tb->tc_ptr, gen_code_size,
+                env->thumb | (env->bswap_code << 1));
         qemu_log("\n");
         qemu_log_flush();
     }

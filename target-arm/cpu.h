@@ -29,7 +29,7 @@
 #include "qemu-common.h"
 #include "cpu-defs.h"
 
-typedef uint32_t Inst;
+typedef uint8_t Inst;
 typedef uint32_t Field;
 
 #include "softfloat.h"

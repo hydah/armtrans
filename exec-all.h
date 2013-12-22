@@ -171,6 +171,10 @@ struct TranslationBlock {
     struct TranslationBlock *jmp_first;
     uint32_t icount;
     uint32_t hcode_size;
+
+    uint32_t exit_tb_nopush;
+    uint32_t may_change_state;
+    uint32_t set_cpsr;
 };
 
 static inline unsigned int tb_jmp_cache_hash_page(target_ulong pc)

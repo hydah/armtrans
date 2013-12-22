@@ -473,8 +473,6 @@ done:
     return segv;
 }
 
-int cc_prolog_init(CPUARMState *env, TCGContext *s);
-
 void cpu_loop(CPUARMState *env)
 {
     int trapnr;
@@ -1274,6 +1272,10 @@ int main(int argc, char **argv, char **envp)
     {
         int i;
         cpsr_write(env, regs->uregs[16], 0xffffffff);
+        /* add by heyu.
+         * set the guest program's cpsr
+         */
+        *env->cpsr = cpsr_read(env);
         for(i = 0; i < 16; i++) {
             env->regs[i] = regs->uregs[i];
         }

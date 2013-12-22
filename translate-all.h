@@ -52,12 +52,13 @@ typedef struct TCGContext TCGContext;
 struct TCGContext {
 
     /* goto_tb support */
-    uint32_t *code_buf;
     uintptr_t *tb_next;
     uint16_t *tb_next_offset;
     uint16_t *tb_jmp_offset; /* != NULL if USE_DIRECT_JUMP */
 
     struct TranslationBlock *cur_tb;
+
+    uint8_t *code_buf;
     uint8_t *code_ptr;
 };
 

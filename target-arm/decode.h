@@ -3,10 +3,18 @@
 
 #include <stdbool.h>
 #include "cpu.h"
+typedef struct reg_desc reg_desc;
+struct reg_desc {
+    uint32_t reg;
+    uint32_t reg_pos;
+};
 
 typedef struct decode_s decode_t;
 struct decode_s {
 	uint32_t cond;
+    uint32_t condexec_mask;
+    uint32_t condexec_cond;
+    uint32_t condmp;
     uint32_t index;
 	uint32_t op;
     uint32_t inst;
@@ -19,13 +27,8 @@ struct decode_s {
 	uint32_t A;
 	uint32_t L;
 	uint32_t S;
-	uint32_t Rl; /* RegList for multi ld/st */
 	uint32_t Rh;
-	uint32_t Rn;
-	uint32_t Rs;
-	uint32_t Rd;
 	uint32_t Rc;
-	uint32_t Rm;
     uint32_t t;
     uint32_t r;
     uint32_t b;
@@ -33,16 +36,22 @@ struct decode_s {
     uint32_t p;
     uint32_t q;
 
+    bool bswap_code;
     uint8_t *pc;
-    bool (*fun)(TCGContext *s, decode_t *ds);
+    int (*func)(CPUARMState *env, TCGContext *s, decode_t *ds);
     bool is_jmp;
     uint32_t src_regpos_list;
     uint32_t dst_regpos_list;
+
+    reg_desc reg_src[4];
+    reg_desc reg_dst[4];
+
     int Rd, Rd_pos;
     int Rd2, Rd2_pos;
     int Rm, Rm_pos;
     int Rn, Rn_pos;
     int Rs, Rs_pos;
+	uint32_t Rl; /* RegList for multi ld/st */
     uint32_t rd_num;
     uint32_t rs_num;
     uint32_t reg_list;
