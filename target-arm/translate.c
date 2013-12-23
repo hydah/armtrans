@@ -43,8 +43,7 @@ int arm_gen_code(CPUArchState *env, TCGContext *s, TranslationBlock *tb);
 int cc_prolog_init(CPUARMState *env, TCGContext *s)
 {
     arm_prolog_init(env, s);
-    thumb_prolog_init(env, s);
-
+    //thumb_prolog_init(env, s);
     return 0;
 }
 

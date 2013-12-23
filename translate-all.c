@@ -32,8 +32,6 @@
 #include "decode.h"
 
 
-
-
 /* code generation context */
 TCGContext tcg_ctx;
 

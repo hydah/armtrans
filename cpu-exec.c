@@ -168,8 +168,10 @@ int cpu_exec(CPUArchState *env)
                    infinite loop and becomes env->current_tb. Avoid
                    starting execution if there is a pending interrupt. */
                 env->current_tb = tb;
+                /* the prologue is arm-mode */
+                *env->cpsr = *env->cpsr & ~(1 << 5);
 
-                tc_ptr = tb->tc_ptr;
+                tc_ptr = (uint32_t)tb->tc_ptr | env->thumb;
                 /* execute the generated code */
                 next_tb = tcg_qemu_tb_exec(env, tc_ptr);
 

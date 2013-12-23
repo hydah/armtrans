@@ -7,8 +7,6 @@ static const char *regnames[] =
     { "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
       "r8", "r9", "r10", "r11", "r12", "r13", "r14", "pc" };
 
-static Inst *tb_ret_addr;
-
 #define INST_BITS	32
 #define BR_OFF_BITS	24
 #define TRAN_IMM_BITS	12
@@ -65,7 +63,7 @@ enum inst_filed {
 
 enum inst_cpsr {
         CPSR_STOR_ALL = 0x10f0000,
-        CPSR_RTOS_ALL = 0x129f000,
+        CPSR_RTOS_ALL = 0x12ff000,
 };
 
 static uint32_t find_free_reg(uint32_t reg_list)
@@ -264,7 +262,7 @@ static void cemit_exit_tb(TCGContext *s, Inst *target)
     patch_pc = s->code_ptr;
     cemit_datapro_imm(s, OP_ADD, REG_R0, REG_PC, 0, NEED_PATCH);
     /* back to translator */
-    cemit_branch(s, COND_AL, s->code_ptr, tb_ret_addr);
+    cemit_branch(s, COND_AL, s->code_ptr, s->tb_ret_addr);
 
     modify_pro_imm(patch_pc, s->code_ptr);
     /* store (tb, next_pc) in code cache */
@@ -300,7 +298,7 @@ static void cemit_exit_tb_ind(TCGContext *s, uint32_t Rt)
     cemit_datapro_imm(s, OP_ADD, REG_R0, REG_PC, 0, NEED_PATCH);
 
     /* back to translator */
-    cemit_branch(s, COND_AL, s->code_ptr, tb_ret_addr);
+    cemit_branch(s, COND_AL, s->code_ptr, s->tb_ret_addr);
 
     modify_pro_imm(patch_pc2, s->code_ptr);
     /* store tb in code cache */
@@ -341,7 +339,7 @@ static void cemit_exit_tb_msr(TCGContext *s, decode_t *ds, uint32_t Rt)
     cemit_datapro_imm(s, OP_ADD, REG_R0, REG_PC, 0, NEED_PATCH);
 
     /* back to translator */
-    cemit_branch(s, COND_AL, s->code_ptr, tb_ret_addr);
+    cemit_branch(s, COND_AL, s->code_ptr, s->tb_ret_addr);
 
     modify_pro_imm(patch_pc2, s->code_ptr);
     /* store tb in code cache */
@@ -491,7 +489,7 @@ static void ld_st_gregs(TCGContext *s, Field st_ld, Field rd, Field rn, Field of
     Field wb = ADDR_NO_WB;
     Field dir = ADDR_INC;
     Field i = 0;
-    for (i = rd; i <= 15; i++) {
+    for (i = rd; i < 15; i++) {
         cemit_datatran_imm(s, st_ld, pre_post, wb, dir, i, rn, off);
     }
 }
@@ -1238,7 +1236,7 @@ static void restore_host_state(CPUARMState *env, TCGContext *s)
     uint32_t off;
     /* ldr REG_SP, (sp_tmp) */
     off = (env->sp_tmp - (uint32_t *)s->code_ptr - 2) * 4;
-    cemit_datatran_imm(s, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_SP, REG_PC, off);
+    cemit_datatran_imm(s, TRAN_LD, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_SP, REG_PC, off);
 
     /* ldmdb sp!, {r4-r12, pc} */
     code_emit32(s->code_ptr, (COND_AL << 28) | 0x08bd9ff0);
@@ -1294,7 +1292,7 @@ int arm_prolog_init(CPUARMState *env, TCGContext *s)
     /* jump to code cache */
     off = (env->tpc - (uint32_t *)s->code_ptr - 2) * 4;
     cemit_datatran_imm(s, TRAN_LD, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_PC, REG_PC, off);
-    tb_ret_addr = s->code_ptr;
+    s->tb_ret_addr = s->code_ptr;
 
     /* epilogue */
     preserve_guest_state(env, s);
@@ -1312,5 +1310,6 @@ int arm_prolog_init(CPUARMState *env, TCGContext *s)
         qemu_log("\n");
         qemu_log_flush();
     }
+    s->code_ptr += 4;
     return 0;
 }

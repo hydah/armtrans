@@ -60,6 +60,7 @@ struct TCGContext {
 
     uint8_t *code_buf;
     uint8_t *code_ptr;
+    uint8_t *tb_ret_addr;
 };
 
 extern TCGContext tcg_ctx;
