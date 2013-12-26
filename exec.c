@@ -629,6 +629,7 @@ void tcg_exec_init(unsigned long tb_size)
     cpu_gen_init();
     code_gen_alloc(tb_size);
     code_gen_ptr = code_gen_buffer;
+    fprintf(stderr, "code_gen_buffer is %x\n", code_gen_buffer);
     //tcg_register_jit(code_gen_buffer, code_gen_buffer_size);
     page_init();
 #if !defined(CONFIG_USER_ONLY) || !defined(CONFIG_USE_GUEST_BASE)
@@ -1383,11 +1384,13 @@ static void tb_link_page(TranslationBlock *tb, tb_page_addr_t phys_pc,
     tb->jmp_next[0] = NULL;
     tb->jmp_next[1] = NULL;
 
+#if 0
     /* init original jump addresses */
     if (tb->tb_next_offset[0] != 0xffff)
         tb_reset_jump(tb, 0);
     if (tb->tb_next_offset[1] != 0xffff)
         tb_reset_jump(tb, 1);
+#endif
 
 #ifdef DEBUG_TB_CHECK
     tb_page_check();

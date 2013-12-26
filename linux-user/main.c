@@ -1276,9 +1276,11 @@ int main(int argc, char **argv, char **envp)
          * set the guest program's cpsr
          */
         *env->cpsr = cpsr_read(env);
-        for(i = 0; i < 16; i++) {
+        for(i = 0; i < 15; i++) {
             env->regs[i] = regs->uregs[i];
         }
+        *env->tpc = regs->uregs[15];
+
         /* Enable BE8.  */
         if (EF_ARM_EABI_VERSION(info->elf_flags) >= EF_ARM_EABI_VER4
             && (info->elf_flags & EF_ARM_BE8)) {

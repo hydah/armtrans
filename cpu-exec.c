@@ -27,6 +27,11 @@
 int tb_invalidated_flag;
 
 //#define CONFIG_DEBUG_EXEC
+typedef struct Stub_obj Stub_obj;
+struct Stub_obj {
+    int next_pc;
+    int prev_tb;
+};
 
 bool qemu_cpu_has_work(CPUState *cpu)
 {
@@ -123,7 +128,8 @@ int cpu_exec(CPUArchState *env)
     int ret;
     TranslationBlock *tb;
     uint8_t *tc_ptr;
-    tcg_target_ulong next_tb;
+    Stub_obj *cc_stub;
+    tcg_target_ulong prev_tb;
 
     env->exception_index = -1;
 
@@ -139,7 +145,7 @@ int cpu_exec(CPUArchState *env)
                 break;
             }
 
-            next_tb = 0; /* force lookup of first TB */
+            prev_tb = 0; /* force lookup of first TB */
             for(;;) {
 #if defined(DEBUG_DISAS) || defined(CONFIG_DEBUG_EXEC)
                 if (qemu_loglevel_mask(CPU_LOG_TB_CPU)) {
@@ -159,8 +165,8 @@ int cpu_exec(CPUArchState *env)
                 /* see if we can patch the calling TB. When the TB
                    spans two pages, we cannot safely do a direct
                    jump. */
-                if (next_tb != 0 && tb->page_addr[1] == -1) {
-                    tb_add_jump((TranslationBlock *)(next_tb & ~3), next_tb & 3, tb);
+                if (prev_tb != 0 && tb->page_addr[1] == -1) {
+                   // tb_add_jump((TranslationBlock *)(next_tb & ~3), next_tb & 3, tb);
                 }
 
                 /* cpu_interrupt might be called while translating the
@@ -173,7 +179,11 @@ int cpu_exec(CPUArchState *env)
 
                 tc_ptr = (uint32_t)tb->tc_ptr | env->thumb;
                 /* execute the generated code */
-                next_tb = tcg_qemu_tb_exec(env, tc_ptr);
+                cc_stub = tcg_qemu_tb_exec(env, tc_ptr);
+                /* handle cc_stub */
+                *env->tpc = cc_stub->next_pc;
+                env->prev_tb = cc_stub->prev_tb;
+                prev_tb = env->prev_tb;
 
                 env->current_tb = NULL;
             } /* for(;;) */

@@ -82,10 +82,15 @@ struct arm_boot_info;
 struct TranslationBlock;
 
 typedef struct CPUARMState {
+    /* host stack pointer */
     uint32_t *sp_tmp;
-    uint32_t *tpc;
+    /* guest program: r0-r14 */
     uint32_t *regs;
+    /* guest program: cpsr */
     uint32_t *cpsr;
+
+    uint32_t *tpc;
+    uint32_t prev_tb;
 
     /* Regs for current mode.  */
     //uint32_t regs[16];
@@ -710,7 +715,7 @@ static inline void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
                                         target_ulong *cs_base, int *flags)
 {
     int privmode;
-    *pc = env->regs[15];
+    *pc = *env->tpc;
     *cs_base = 0;
     *flags = (env->thumb << ARM_TBFLAG_THUMB_SHIFT)
         | (env->vfp.vec_len << ARM_TBFLAG_VECLEN_SHIFT)

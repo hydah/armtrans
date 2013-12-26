@@ -1246,11 +1246,14 @@ static void restore_host_state(CPUARMState *env, TCGContext *s)
 static void preserve_guest_state(CPUARMState *env, TCGContext *s)
 {
     uint32_t off;
-    /* preserve cc's environment. Note r0 is stored on [sp] now. */
+    /* preserve cc's environment. Note r1, r0 is stored on [sp] now. */
     off = (env->regs - (uint32_t *)s->code_ptr - 2) * 4;
     ld_st_gregs(s, TRAN_ST, REG_R0, REG_PC, off);
     
-    cemit_pop(s, REG_R1); 	/* use r1 to mov the [sp] to context[r0] */
+    cemit_pop(s, REG_R2); 	/* use r2 to mov the [sp](r1) to regs[1] */
+    off = (env->regs + 1 - (uint32_t *)s->code_ptr - 2) * 4;
+    cemit_datatran_imm(s, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_R1, REG_PC, off);
+    cemit_pop(s, REG_R2); 	/* use r2 to mov the [sp](r0) to regs[0] */
     off = (env->regs - (uint32_t *)s->code_ptr - 2) * 4;
     cemit_datatran_imm(s, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_R1, REG_PC, off);
     
@@ -1279,10 +1282,10 @@ int arm_prolog_init(CPUARMState *env, TCGContext *s)
     s->code_buf = code_gen_prologue;
     s->code_ptr = s->code_buf;
 
-    env->tpc = (uint32_t *)code_gen_prologue + 50;
-    env->sp_tmp = env->tpc + 1;
+    env->sp_tmp = (uint32_t *)code_gen_prologue + 50;
     env->regs = env->sp_tmp + 1;
-    env->cpsr = env->regs + 16; 
+    env->tpc = env->regs + 15;
+    env->cpsr = env->tpc + 1; 
 
     AT_DBG("prologue init\n");
     /* prologue */
@@ -1298,11 +1301,11 @@ int arm_prolog_init(CPUARMState *env, TCGContext *s)
     preserve_guest_state(env, s);
     restore_host_state(env, s);
 
+    /* preserve the space for context */
+    s->code_ptr = s->code_buf + (68 + 1) * 4;
     flush_icache_range((tcg_target_ulong)s->code_buf,
                        (tcg_target_ulong)s->code_ptr);
 
-    /* preserve the space for context */
-    s->code_ptr = s->code_buf + (68 + 1) * 4;
     size = s->code_ptr - s->code_buf;
     if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)) {
         qemu_log("ARM-prologue/epilogue: [size=%d]\n", size);
@@ -1310,6 +1313,6 @@ int arm_prolog_init(CPUARMState *env, TCGContext *s)
         qemu_log("\n");
         qemu_log_flush();
     }
-    s->code_ptr += 4;
+    fprintf(stderr, "s->code_ptr is %x\n", s->code_ptr);
     return 0;
 }
