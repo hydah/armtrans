@@ -178,7 +178,11 @@ int cpu_exec(CPUArchState *env)
                 *env->cpsr = *env->cpsr & ~(1 << 5);
 
                 tc_ptr = (uint32_t)tb->tc_ptr | env->thumb;
+                if (tb->pc == 0x0001175a) {
+                    fprintf(stderr, "tb->pc is 0x00011824. @%s\n", __FUNCTION__);
+                }
                 /* execute the generated code */
+                fprintf(stderr, "tb->pc is. @%x\n", tb->pc);
                 cc_stub = tcg_qemu_tb_exec(env, tc_ptr);
                 /* handle cc_stub */
                 *env->tpc = cc_stub->next_pc;

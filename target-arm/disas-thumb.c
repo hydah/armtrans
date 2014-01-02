@@ -19,14 +19,28 @@ static uint32_t find_free_reg(uint32_t reg_list)
     abort();
 }
 
-static int cemit_thumb2_datatra_imm(TCGContext *s, uint32_t ld_st, uint32_t Rn, uint32_t rt, uint32_t imm)
+static int cemit_thumb2_datatra_imm(TCGContext *s, uint32_t ld_st, uint32_t Rt, uint32_t Rn, uint32_t imm)
 {
+    uint32_t inst;
+    inst = 0xf8c00000;
+
+    if (Rn == REG_PC) {
+        abort();
+    } else {
+        inst = inst | (ld_st << 20) | (Rn << 16) | (Rt << 12) | (BITS(imm, 0, 12));
+    }
+    *s->code_ptr++ = ((inst >> 16) & 0xff);
+    *s->code_ptr++ = ((inst >> 24) & 0xff);
+    *s->code_ptr++ = (inst & 0xff);
+    *s->code_ptr++ = ((inst >> 8) & 0xff);
+        
     return 0;
 }
 static int modify_thumb2_datatra_imm(TCGContext *s, uint8_t *pc_start, uint8_t *pc_end)
 {
     return 0;
 }
+
 static int cemit_thumb_datatra_imm(TCGContext *s, uint32_t ld_st, uint32_t Rn, uint32_t Rt, uint32_t imm)
 {
     uint32_t inst;
@@ -178,7 +192,7 @@ static void cemit_thumb_br_cond(TCGContext *s, uint32_t cond, uint8_t *pc, uint8
     offset = target - (pc + 4);
 
     if (offset < 0x8f && offset > -0x8f) {
-        inst = 0xc000 | (cond << 8) | BITS(offset, 0, 8);
+        inst = 0xd000 | (cond << 8) | BITS(offset, 0, 8);
         *s->code_ptr++ = inst & 0xff;
         *s->code_ptr++ = (inst >> 8) & 0xff;
     } else {
@@ -217,7 +231,7 @@ static int modify_thumb_br_uncond_off(TCGContext *s, uint8_t *pc_start, uint8_t 
 
     offset = pc_end - (pc_start + 4);
     if (offset < ((1 << 10) - 1) && offset > -((1 << 10) - 1)) {
-        inst = inst & 0xfffffc00;
+        inst = inst & 0xfffff800;
         inst = inst | BITS(offset, 1, 11);
         *pc_ptr = inst;
     } else {
@@ -241,7 +255,7 @@ static int modify_thumb_br_cond_off(TCGContext *s, uint8_t *pc_start, uint8_t *p
 
     offset = pc_end - (pc_start + 4);
     if (offset < ((1 << 7) - 1) && offset > -((1 << 7) - 1)) {
-        inst = inst & 0xfffffc00;
+        inst = inst & 0xffffff00;
         inst = inst | BITS(offset, 1, 8);
         *pc_ptr = inst;
     } else {
@@ -292,11 +306,16 @@ static void cemit_thumb_exit_tb_ind(TCGContext *s, uint32_t Rt)
 {
     TranslationBlock *tb;
     Inst *patch_pc1, *patch_pc2;
+    uint32_t reg_free;
 
     tb = s->cur_tb;
     /* str Rt, [pc, off] */
+    reg_free = find_free_reg(1 << Rt);
+    cemit_thumb_push(s, reg_free);
     patch_pc1 = s->code_ptr;
-    cemit_thumb2_datatra_imm(s, (1 << 0), Rt, REG_PC, 0);
+    cemit_thumb_add_to_pc(s, reg_free, s->code_ptr, s->code_ptr);
+    cemit_thumb2_datatra_imm(s, 0, Rt, reg_free, 0);
+    cemit_thumb_pop(s, reg_free);
 
     if (tb->exit_tb_nopush) { 
         /* push r0 */
@@ -330,9 +349,9 @@ static void cemit_thumb_exit_tb_ind(TCGContext *s, uint32_t Rt)
     modify_thumb_addtopc_off(patch_pc2, s->code_ptr);
 
     /* store tb in code cache */
-    code_emit32(s->code_ptr, (uint32_t)tb);
-    modify_thumb2_datatra_imm(s, patch_pc1, s->code_ptr);
+    modify_thumb_addtopc_off(patch_pc1, s->code_ptr);
     s->code_ptr += 4;
+    code_emit32(s->code_ptr, (uint32_t)tb);
 }
 static int cemit_thumb_exit_tb_msr(TCGContext *s, uint32_t Rm)
 {
@@ -392,7 +411,7 @@ static void cemit_thumb2_normal(TCGContext *s, decode_t *ds)
 
 }
 
-static int write_thumb2_pc(TCGContext *s, decode_t *ds, uint32_t rd_pos, uint32_t reg_free)
+static bool write_thumb2_pc(TCGContext *s, decode_t *ds, uint32_t rd_pos, uint32_t reg_free)
 {
     uint32_t inst;
     //uint32_t *patch_stub1, *patch_stub2;
@@ -427,7 +446,7 @@ static int write_thumb2_pc(TCGContext *s, decode_t *ds, uint32_t rd_pos, uint32_
     cemit_thumb2_normal(s, ds);
     cemit_thumb_exit_tb_ind(s, reg_free);
 
-    return 0;
+    return true;
 }
 
 static bool try_emit_thumb2_normal(TCGContext *s, decode_t *ds)
@@ -440,11 +459,9 @@ static bool try_emit_thumb2_normal(TCGContext *s, decode_t *ds)
      * but ONLY one dest_reg can be REG_PC
      */
     if (ds->rd_num >= 1 && ds->Rd == REG_PC) {
-        write_thumb2_pc(s, ds, ds->Rd_pos, reg_free);
-        return true;
+        return write_thumb2_pc(s, ds, ds->Rd_pos, reg_free);
     } else if (ds->rd_num == 2 && ds->Rd2 == REG_PC) {
-        write_thumb2_pc(s, ds, ds->Rd2_pos, reg_free);
-        return true;
+        return write_thumb2_pc(s, ds, ds->Rd2_pos, reg_free);
     } else {
         cemit_thumb2_normal(s, ds);
         return false;
@@ -474,6 +491,10 @@ static bool xlate_thumb2_br_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
         /* tbb -> ldrb + exit_tb
          * tbh -> ldrh + exit_tb
          */
+        ds->Rm = BITS(inst, 16, 4);
+        ds->Rm_pos = 16;
+        ds->Rn = BITS(inst, 0, 4);
+        ds->Rn_pos = 0;
         s->cur_tb->exit_tb_nopush = 0;
         reg_free = find_free_reg((1 << ds->Rn) | (1 << ds->Rm));
         cemit_thumb_push(s, reg_free);
@@ -485,11 +506,11 @@ static bool xlate_thumb2_br_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
             inst = 0xf8500000 ;
         }
 
-        if (ds->Rn == REG_PC) {
+        if (ds->Rm == REG_PC) {
             cemit_thumb_mov_imm32(s, reg_free, (uint32_t)ds->pc + 2);
-            inst = inst | (reg_free << 16) | (reg_free << 12) | (ds->Rm); 
+            inst = inst | (reg_free << 16) | (reg_free << 12) | (ds->Rn); 
         } else {
-            inst = inst | (ds->Rn << 16) | (reg_free << 12) | ds->Rm;
+            inst = inst | (ds->Rm << 16) | (reg_free << 12) | ds->Rn;
         }
         *s->code_ptr++ = ((inst >> 16) & 0xff);
         *s->code_ptr++ = ((inst >> 24) & 0xff);
@@ -591,7 +612,7 @@ static bool xlate_thumb2_br_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
     return true;
 }
 
-static int xlate_thumb2_datapro_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_thumb2_datapro_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
     /* Halfword pack.  */
     /* Data processing register constant shift.  */
@@ -616,19 +637,20 @@ static int xlate_thumb2_datapro_reg(CPUARMState *env, TCGContext *s, decode_t *d
     switch (BITS(inst, 25, 4)) {
         case 0x5:
             /* data processing: constant shift */
-            try_emit_thumb2_normal(s, ds);
+            return try_emit_thumb2_normal(s, ds);
             break;
         case 0xd:
-            try_emit_thumb2_normal(s, ds);
+            return try_emit_thumb2_normal(s, ds);
             break;
         default: 
             abort();
     }
-    
+
+    return false;
 }
 
 /* complete */
-static int xlate_thumb2_datapro_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_thumb2_datapro_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
     /* the type of correlated instructions is:
      * general data_pro_imm
@@ -657,7 +679,7 @@ static int xlate_thumb2_datapro_imm(CPUARMState *env, TCGContext *s, decode_t *d
     return try_emit_thumb2_normal(s, ds);
 }
 
-static int xlate_thumb2_datatra_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_thumb2_datatra_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
     /* the type of correlated instructions is:
      * other ld/st
@@ -666,6 +688,7 @@ static int xlate_thumb2_datatra_reg(CPUARMState *env, TCGContext *s, decode_t *d
      */
 
     uint32_t inst;
+    uint32_t reg_free;
 
     inst = ds->inst;
     ds->Rd = BITS(inst, 12, 4);
@@ -673,7 +696,7 @@ static int xlate_thumb2_datatra_reg(CPUARMState *env, TCGContext *s, decode_t *d
     ds->Rm = BITS(inst, 16, 4);
     ds->Rm_pos = 16;
 
-    switch (BITS(inst, 26, 4)) {
+    switch (BITS(inst, 25, 4)) {
         case 0x4:
             if (BITS(inst, 22, 1) == 0x1) {
                 /* ldrd/strd  */
@@ -685,7 +708,7 @@ static int xlate_thumb2_datatra_reg(CPUARMState *env, TCGContext *s, decode_t *d
                         ds->rd_num = 2;
                         ds->rs_num = 1;
                         ds->reg_list = (1 << ds->Rd) | (1 << ds->Rd2) | (1 << ds->Rm);
-                        try_emit_thumb2_normal(s, ds);
+                        return try_emit_thumb2_normal(s, ds);
                     } else {
                         /* strd */
                         ds->Rn = BITS(inst, 8, 4);
@@ -704,7 +727,7 @@ static int xlate_thumb2_datatra_reg(CPUARMState *env, TCGContext *s, decode_t *d
                         ds->rd_num = 1;
                         ds->rs_num = 1;
                         ds->reg_list = (1 << ds->Rd) | (1 << ds->Rm);
-                        try_emit_thumb2_normal(s, ds);
+                        return try_emit_thumb2_normal(s, ds);
                     } else {
                         /* strex */
                         ds->Rn = BITS(inst, 8, 4);
@@ -725,7 +748,7 @@ static int xlate_thumb2_datatra_reg(CPUARMState *env, TCGContext *s, decode_t *d
                                 ds->rd_num = 1;
                                 ds->rs_num = 1;
                                 ds->reg_list = (1 << ds->Rd) | (1 << ds->Rm);
-                                try_emit_thumb2_normal(s, ds);
+                                return  try_emit_thumb2_normal(s, ds);
                             } else {
                                 /* st */
                                 ds->Rn = BITS(inst, 0, 4);
@@ -745,7 +768,7 @@ static int xlate_thumb2_datatra_reg(CPUARMState *env, TCGContext *s, decode_t *d
                                 ds->rd_num = 2;
                                 ds->rs_num = 1;
                                 ds->reg_list = (1 << ds->Rd) | (1 << ds->Rd2) | (1 << ds->Rm);
-                                try_emit_thumb2_normal(s, ds);
+                                return try_emit_thumb2_normal(s, ds);
                             } else {
                                 ds->Rn = BITS(inst, 8, 4);
                                 ds->Rn_pos = 8;
@@ -764,13 +787,41 @@ static int xlate_thumb2_datatra_reg(CPUARMState *env, TCGContext *s, decode_t *d
                 }
             } else {
                 /* ldm/stm/push/pop */
+                ds->Rm = BITS(inst, 16, 4);
+                ds->Rm_pos = 16;
+                ds->reg_list = BITS(inst, 0, 16) | (1 << ds->Rm);
+                ds->rd_num = 0;
+                ds->rs_num = 1;
+               if (inst & (1 << 20)) {
+                   /* ldm/pop */
+                   if (inst & (1 << 15)) {
+                       /* write pc */
+                       inst = inst & ~(1 << 15);
+                       ds->inst = inst;
+                       cemit_thumb2_normal(s, ds);
+                       ds->reg_list = (1 << ds->Rm);
+                       reg_free = find_free_reg(ds->reg_list);
+                       cemit_thumb_push(s, reg_free);
+                       inst = inst & ~((1 << 16) - 1);
+                       inst = inst | (1 << reg_free);
+                       cemit_thumb2_normal(s, ds);
+                       cemit_thumb_exit_tb_ind(s, reg_free);
+                       return true;
+                   } else {
+                       cemit_thumb2_normal(s, ds);
+                   }
+
+               } else {
+                   /* stm/push */
+                   cemit_thumb2_normal(s, ds);
+               }
 
             }
             break;
         default:
             abort();
     }
-    return 0;
+    return false;
 }
 
 /* complete */
@@ -1223,7 +1274,7 @@ static int xlate_thumb_br_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
 
         target1 = (BITS(inst, 9, 1) << 5) | BITS(inst, 3, 5);
         target1 = target1 << 1;
-        target1 = pc + 4 + target1;
+        target1 = ds->pc + 4 + target1;
 
         /* cbz|cbnz patch_stub1 */
         inst = inst & 0xfd07;

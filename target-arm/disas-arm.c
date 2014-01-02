@@ -1252,10 +1252,13 @@ static void preserve_guest_state(CPUARMState *env, TCGContext *s)
     
     cemit_pop(s, REG_R2); 	/* use r2 to mov the [sp](r1) to regs[1] */
     off = (env->regs + 1 - (uint32_t *)s->code_ptr - 2) * 4;
-    cemit_datatran_imm(s, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_R1, REG_PC, off);
+    cemit_datatran_imm(s, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_R2, REG_PC, off);
     cemit_pop(s, REG_R2); 	/* use r2 to mov the [sp](r0) to regs[0] */
     off = (env->regs - (uint32_t *)s->code_ptr - 2) * 4;
-    cemit_datatran_imm(s, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_R1, REG_PC, off);
+    cemit_datatran_imm(s, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_R2, REG_PC, off);
+
+    off = (env->regs + 13 - (uint32_t *)s->code_ptr - 2) * 4;
+    cemit_datatran_imm(s, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, REG_SP, REG_PC, off);
     
     off = (env->cpsr - (uint32_t *)s->code_ptr - 2) * 4;
     ld_st_cpsr(s, CPSR_STOR_ALL, TRAN_ST, REG_R1, REG_PC, off);
