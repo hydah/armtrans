@@ -177,18 +177,27 @@ int cpu_exec(CPUArchState *env)
                 /* the prologue is arm-mode */
                 *env->cpsr = *env->cpsr & ~(1 << 5);
 
+                /* in prologue, use [bx (tc_ptr | env->thumb)] to detemine 
+                 * the cpu mode dynamicly
+                 */
                 tc_ptr = (uint32_t)tb->tc_ptr | env->thumb;
-                if (tb->pc == 0x0001175a) {
+                if (tb->pc == 0x00011e90) {
                     fprintf(stderr, "tb->pc is 0x00011824. @%s\n", __FUNCTION__);
                 }
                 /* execute the generated code */
                 fprintf(stderr, "tb->pc is. @%x\n", tb->pc);
                 cc_stub = tcg_qemu_tb_exec(env, tc_ptr);
                 /* handle cc_stub */
-                *env->tpc = cc_stub->next_pc;
+                *env->tpc = cc_stub->next_pc & ~1;
                 env->prev_tb = cc_stub->prev_tb;
+                if (((struct TranslationBlock *)env->prev_tb)->may_change_state) {
+                    env->thumb = cc_stub->next_pc & 1;
+                }
                 prev_tb = env->prev_tb;
 
+                if (*env->tpc == 0x00011e90) {
+                    fprintf(stderr, "*env->tpc is 0x00011824. @%s\n", __FUNCTION__);
+                }
                 env->current_tb = NULL;
             } /* for(;;) */
         }
