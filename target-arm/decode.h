@@ -99,8 +99,8 @@ enum REG_NAME {
 #define REG_NUM		16
 
 int do_decode(Inst *pc, decode_t *ds);
-bool emit_normal(TCGContext *s, decode_t *ds);
 bool emit_branch(TCGContext *s, decode_t *ds);
+bool emit_normal(TCGContext *s, decode_t *ds);
 bool emit_exception(TCGContext *s, decode_t *ds);
 bool emit_null(TCGContext *s, decode_t *ds);
 bool emit_br_ind(TCGContext *s, decode_t *ds);

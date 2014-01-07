@@ -19,6 +19,7 @@ static uint32_t find_free_reg(uint32_t reg_list)
     abort();
 }
 
+
 static int cemit_thumb2_datatra_imm(TCGContext *s, uint32_t ld_st, uint32_t Rt, uint32_t Rn, uint32_t imm)
 {
     uint32_t inst;
@@ -40,7 +41,6 @@ static int modify_thumb2_datatra_imm(TCGContext *s, uint8_t *pc_start, uint8_t *
 {
     return 0;
 }
-
 static int cemit_thumb_datatra_imm(TCGContext *s, uint32_t ld_st, uint32_t Rn, uint32_t Rt, uint32_t imm)
 {
     uint32_t inst;
@@ -146,6 +146,30 @@ static int modify_thumb_addtopc_off(uint8_t *pc_start, uint8_t *pc_end)
     }
 
     return 0;
+}
+
+
+static void cemit_store_pc_off(TCGContext *s, uint8_t **patch, uint32_t Rt, uint32_t imm)
+{
+    uint32_t reg_free;
+
+    reg_free = find_free_reg(1 << Rt);
+    cemit_thumb_push(s, reg_free);
+    *patch = s->code_ptr;
+    cemit_thumb_add_to_pc(s, reg_free, s->code_ptr, imm);
+    cemit_thumb2_datatra_imm(s, 0, Rt, reg_free, 0);
+    cemit_thumb_pop(s, reg_free);
+    return 0;
+}
+
+static void cemit_load_pc_off(TCGContext *s, uint8_t **patch, uint32_t Rt, uint32_t imm)
+{
+    uint32_t inst;
+    
+    *patch = s->code_ptr;
+    inst = 0x4800 | (Rt << 8) | BITS(imm, 2, 8);
+    *s->code_ptr++ = inst & 0xff;
+    *s->code_ptr++ = (inst >> 8) & 0xff;
 }
 
 /* complete */
@@ -307,6 +331,7 @@ static void cemit_thumb_exit_tb_ind(TCGContext *s, uint32_t Rt)
     TranslationBlock *tb;
     Inst *patch_pc1, *patch_pc2;
     uint32_t reg_free;
+    uint32_t inst;
 
     tb = s->cur_tb;
     /* str Rt, [pc, off] */
@@ -316,6 +341,16 @@ static void cemit_thumb_exit_tb_ind(TCGContext *s, uint32_t Rt)
     cemit_thumb_add_to_pc(s, reg_free, s->code_ptr, s->code_ptr);
     cemit_thumb2_datatra_imm(s, 0, Rt, reg_free, 0);
     cemit_thumb_pop(s, reg_free);
+
+    if (s->cur_tb->is_pop_pc) {
+        /* pop Rt */
+        cemit_thumb_pop(s, Rt);
+        /* add sp, sp, 4 */
+        inst = 0xb001;
+        *s->code_ptr++ = inst & 0xff;
+        *s->code_ptr++ = (inst >> 8) & 0xff;
+        tb->exit_tb_nopush = 1;
+    }
 
     if (tb->exit_tb_nopush) { 
         /* push r0 */
@@ -385,7 +420,7 @@ static void cemit_thumb2_normal(TCGContext *s, decode_t *ds)
         cemit_thumb_push(s, Rn_rep);
         cemit_thumb_mov_imm32(s, Rn_rep, (uint32_t)ds->pc + 2);
         inst = inst & ~(0xf << ds->Rn_pos);
-        inst |= (Rm_rep << ds->Rn_pos);
+        inst |= (Rn_rep << ds->Rn_pos);
     }
     if (ds->rs_num >= 3 && ds->Rs == REG_PC) {
         Rs_rep = find_free_reg(ds->reg_list);
@@ -856,6 +891,7 @@ static bool xlate_thumb2_datatra_imm(CPUARMState *env, TCGContext *s, decode_t *
     uint32_t reg_free;
     TranslationBlock *tb;
     uint8_t *patch_pc1, *patch_pc2;
+    uint8_t *patch_pc3, *patch_pc4;
 
     inst = ds->inst;
 
@@ -930,15 +966,60 @@ static bool xlate_thumb2_datatra_imm(CPUARMState *env, TCGContext *s, decode_t *
 
                 modify_thumb_addtopc_off(patch_pc2, s->code_ptr);
                 /* store tb in code cache */
-                code_emit32(s->code_ptr, (uint32_t)tb);
                 modify_thumb2_datatra_imm(s, patch_pc1, s->code_ptr);
                 s->code_ptr += 4;
+                code_emit32(s->code_ptr, (uint32_t)tb);
                 return true;
             } else {
                 cemit_thumb2_normal(s, ds);
                 cemit_thumb_pop(s, reg_free);
                 return false;
             }
+        } else if (ds->Rm == REG_SP && ds->Rd == REG_PC) {
+            /* str r0, [pc # offset] */
+            fprintf(stderr, "s->code_ptr is %x\n", s->code_ptr);
+            cemit_store_pc_off(s, &patch_pc1, REG_R0, s->code_ptr);
+
+            /* inst (with rm = r0) */
+            inst = ds->inst;
+            inst = inst & ~(0xf << ds->Rd_pos);
+            inst |= (REG_R0 << ds->Rd_pos);
+            ds->inst = inst;
+            cemit_thumb2_normal(s, ds);
+
+            /* str r0, [stub_target] */
+            cemit_store_pc_off(s, &patch_pc2, REG_R0, s->code_ptr);
+
+            /* ldr r0, [pc # offset] */
+            cemit_load_pc_off(s, &patch_pc3, REG_R0, 0);
+
+            cemit_thumb_push(s, REG_R0);
+
+            /* add r0, pc, off */
+            patch_pc4 = s->code_ptr;
+            cemit_thumb_add_to_pc(s, REG_R0, s->code_ptr, s->code_ptr);
+
+            /* back to translator */
+            /* push r1 */
+            cemit_thumb_push(s, REG_R1);
+            /* mov r1, tb_ret_addr */
+            cemit_thumb_mov_imm32(s, REG_R1, (uint32_t)s->tb_ret_addr);
+            /* bx r1 */
+            cemit_thumb_bx_reg(s, REG_R1);
+
+            if ((uint32_t)s->code_ptr & 0x3) 
+                s->code_ptr += 2;
+            modify_thumb_addtopc_off(patch_pc4, s->code_ptr);
+
+            modify_thumb_addtopc_off(patch_pc2, s->code_ptr);
+            s->code_ptr += 4;
+            /* store tb in code cache */
+            code_emit32(s->code_ptr, (uint32_t)s->cur_tb);
+            modify_thumb_addtopc_off(patch_pc1, s->code_ptr);
+            modify_thumb_addtopc_off(patch_pc3, s->code_ptr);
+            s->code_ptr += 4;
+
+            return true;
         }
 
         return try_emit_thumb2_normal(s, ds);
@@ -1383,8 +1464,16 @@ static bool xlate_thumb_datatra_reg(CPUARMState *env, TCGContext *s, decode_t *d
                  * should pop 2 items in epilogue
                  */ 
                 s->cur_tb->may_change_state = 1;
+                inst = inst & ~(1 << 8);
+                ds->inst = inst;
+                cemit_thumb_normal(s, ds);
                 cemit_thumb_push(s, REG_R0);
-                /* ldr r0, [sp+4] */
+                //inst = inst & ~((1 << 8) - 1);
+                //inst = inst | (1 << REG_R0);
+                inst = 0x9801 | (REG_R0 << 8);
+                ds->inst = inst;
+                cemit_thumb_normal(s, ds);
+                s->cur_tb->is_pop_pc = 1;
                 cemit_thumb_exit_tb_ind(s, REG_R0);
                 return true;
             } else {

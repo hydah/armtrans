@@ -181,7 +181,7 @@ int cpu_exec(CPUArchState *env)
                  * the cpu mode dynamicly
                  */
                 tc_ptr = (uint32_t)tb->tc_ptr | env->thumb;
-                if (tb->pc == 0x00011e90) {
+                if (tb->pc == 0x0001085a) {
                     fprintf(stderr, "tb->pc is 0x00011824. @%s\n", __FUNCTION__);
                 }
                 /* execute the generated code */

@@ -138,7 +138,7 @@ static void cemit_branch(TCGContext *s, Field cond, Inst *pc, Inst *target)
     uint32_t inst;
     int off;
 
-    off = target - (pc + 2);
+    off = target - (pc + 8);
     
     if((off < BR_BOUND) && (off >= -BR_BOUND)) {
         inst = COND(cond)| INST_BRANCH | BITS(off, 0, BR_OFF_BITS);
@@ -153,14 +153,14 @@ static void modify_br_off(Inst *pc, Inst *target)
     uint32_t inst;
     int off;
 
-    inst = *pc;
+    inst = *(uint32_t *)pc;
     inst = CLR_BITS(inst, 0, BR_OFF_BITS);
 
-    off = target - (pc + 2);
+    off = target - (pc + 8);
 
     if((off < BR_BOUND) && (off >= -BR_BOUND)) {
-        inst |= BITS(off, 0, BR_OFF_BITS);
-        *pc = inst;
+        inst |= BITS(off, 2, BR_OFF_BITS);
+        *(uint32_t *)pc = inst;
     } else {
         AT_ERR("offset exceeds bound\n");
     }
@@ -172,10 +172,10 @@ static void modify_tran_imm(Inst *pc, Inst *target)
     uint32_t inst;
     int imm;
 
-    inst = *pc;
+    inst = *(uint32_t *)pc;
     inst = CLR_BITS(inst, 0, TRAN_IMM_BITS);
 
-    imm = (target - (pc + 2)) << 2;
+    imm = target - (pc + 8);
 
     if(imm < 0) {
         inst &= (~ADDR_INC);
@@ -186,7 +186,7 @@ static void modify_tran_imm(Inst *pc, Inst *target)
 
     if(imm < (1 << TRAN_IMM_BITS)) {
         inst |= BITS(imm, 0, TRAN_IMM_BITS);
-        *pc = inst;
+        *(uint32_t *)pc = inst;
     } else {
         AT_ERR("offset exceeds bound\n");
     }
@@ -197,10 +197,10 @@ static void modify_pro_imm(Inst *pc, Inst *target)
     uint32_t inst;
     int imm;
 
-    inst = *pc;
+    inst = *(uint32_t *)pc;
     inst = CLR_BITS(inst, 0, PRO_IMM_BITS);
 
-    imm = (target - (pc + 2)) << 2;
+    imm = target - (pc + 8);
 
     if(imm < 0) {
         inst = CLR_BITS(inst, OP_POS, OP_BITS);
@@ -210,13 +210,13 @@ static void modify_pro_imm(Inst *pc, Inst *target)
 
     if(imm < (1 << PRO_IMM_BITS)) {
         inst |= BITS(imm, 0, PRO_IMM_BITS);
-        *pc = inst;
+        *(uint32_t *)pc = inst;
     } else {
         AT_ERR("offset exceeds bound\n");
     }
 }
 
-static void cemit_mov_i32(TCGContext *s, Field Rd, uint32_t imm32)
+static void cemit_mov_imm32(TCGContext *s, Field Rd, uint32_t imm32)
 {
     uint8_t imm8, pos;
     int i;
@@ -229,7 +229,7 @@ static void cemit_mov_i32(TCGContext *s, Field Rd, uint32_t imm32)
         pos = 8 * i;
         imm8 = BITS(imm32, pos, 8);
         if(imm8 != 0x0) {
-            cemit_datapro_imm(s, OP_ORR, Rd, 0, (32 - pos) / 2, imm8);
+            cemit_datapro_imm(s, OP_ORR, Rd, Rd, (32 - pos) / 2, imm8);
         }
     }
 }
@@ -240,10 +240,10 @@ static void cemit_pc_rel(TCGContext *s, decode_t *ds)
     uint32_t inst;
 
     inst = *ds->pc;
-    Rt = find_free_reg(ds);
+    Rt = find_free_reg(ds->reg_list);
 
     cemit_push(s, Rt);
-    cemit_mov_i32(s, Rt, (uint32_t)(ds->pc + 2));
+    cemit_mov_imm32(s, Rt, (uint32_t)(ds->pc + 2));
     inst = CLR_BITS(inst, RN_POS, REG_BITS) | (Rt << RN_POS);
     code_emit32(s->code_ptr, inst);
     cemit_pop(s, Rt);
@@ -260,14 +260,16 @@ static void cemit_exit_tb(TCGContext *s, Inst *target)
     cemit_push(s, REG_R0);
     /* add r0, pc, off */
     patch_pc = s->code_ptr;
-    cemit_datapro_imm(s, OP_ADD, REG_R0, REG_PC, 0, NEED_PATCH);
+    cemit_datapro_imm(s, OP_ADD, REG_R0, REG_PC, 0, 0);
     /* back to translator */
-    cemit_branch(s, COND_AL, s->code_ptr, s->tb_ret_addr);
+    cemit_push(s, REG_R1);
+    cemit_mov_imm32(s, REG_R1, s->tb_ret_addr);
+    cemit_datapro_reg(s, OP_MOV, REG_PC, 0, REG_R1, 0, 0);
 
     modify_pro_imm(patch_pc, s->code_ptr);
     /* store (tb, next_pc) in code cache */
-    code_emit32(s->code_ptr, (uint32_t)tb);
     code_emit32(s->code_ptr, (uint32_t)target);
+    code_emit32(s->code_ptr, (uint32_t)tb);
 }
 
 static void cemit_exit_tb_ind(TCGContext *s, uint32_t Rt)
@@ -278,8 +280,8 @@ static void cemit_exit_tb_ind(TCGContext *s, uint32_t Rt)
     tb = s->cur_tb;
     /* str Rt, [pc, off] */
     patch_pc1 = s->code_ptr;
-    cemit_datatran_imm(s, TRAN_LD, INDEX_PRE, ADDR_NO_WB, ADDR_INC, 
-                      Rt, REG_PC, NEED_PATCH);
+    cemit_datatran_imm(s, TRAN_ST, INDEX_PRE, ADDR_NO_WB, ADDR_INC, 
+                      Rt, REG_PC, s->code_ptr);
 
     if (tb->exit_tb_nopush) { 
         /* push r0 */
@@ -295,16 +297,19 @@ static void cemit_exit_tb_ind(TCGContext *s, uint32_t Rt)
 
     /* add r0, pc, off */
     patch_pc2 = s->code_ptr;
-    cemit_datapro_imm(s, OP_ADD, REG_R0, REG_PC, 0, NEED_PATCH);
+    cemit_datapro_imm(s, OP_ADD, REG_R0, REG_PC, 0, 0);
 
     /* back to translator */
-    cemit_branch(s, COND_AL, s->code_ptr, s->tb_ret_addr);
+    cemit_push(s, REG_R1);
+    cemit_mov_imm32(s, REG_R1, s->tb_ret_addr);
+    cemit_datapro_reg(s, OP_MOV, REG_PC, 0, REG_R1, 0, 0);
+    //cemit_branch(s, COND_AL, s->code_ptr, s->tb_ret_addr);
 
     modify_pro_imm(patch_pc2, s->code_ptr);
     /* store tb in code cache */
-    code_emit32(s->code_ptr, (uint32_t)tb);
     modify_tran_imm(patch_pc1, s->code_ptr);
     s->code_ptr += 4;
+    code_emit32(s->code_ptr, (uint32_t)tb);
 }
 
 static void cemit_exit_tb_msr(TCGContext *s, decode_t *ds, uint32_t Rt)
@@ -315,7 +320,7 @@ static void cemit_exit_tb_msr(TCGContext *s, decode_t *ds, uint32_t Rt)
 
     tb = s->cur_tb;
     tb->set_cpsr = 1;
-    next_pc = ds->pc + 4;
+    next_pc = (uint32_t)ds->pc + 4;
 
     /* str Rt, [pc, off] */
     patch_pc1 = s->code_ptr;
@@ -343,10 +348,10 @@ static void cemit_exit_tb_msr(TCGContext *s, decode_t *ds, uint32_t Rt)
 
     modify_pro_imm(patch_pc2, s->code_ptr);
     /* store tb in code cache */
-    code_emit32(s->code_ptr, (uint32_t)tb);
-    code_emit32(s->code_ptr, (next_pc + 4));
     modify_tran_imm(patch_pc1, s->code_ptr);
     s->code_ptr += 4;
+    code_emit32(s->code_ptr, (uint32_t)tb);
+    code_emit32(s->code_ptr, (next_pc + 4));
 }
 #if 0
 static void cemit_exit_tb(CPUArchState *env, Inst *target, TranslationBlock *tb)
@@ -379,6 +384,7 @@ bool emit_null(TCGContext *s, decode_t *ds)
     return true;
 }
 
+#if 0
 bool emit_exception(TCGContext *s, decode_t *ds)
 {
     AT_DBG("exception pc = %p\n", ds->pc);
@@ -391,7 +397,7 @@ bool emit_branch(TCGContext *s, decode_t *ds)
 
     if(ds->L == 0x1) {
         /* mov [pc + 4] to lr  */
-        cemit_mov_i32(s, REG_LR, (uint32_t)(ds->pc + 1));
+        cemit_mov_imm32(s, REG_LR, (uint32_t)(ds->pc + 1));
     }
     
     if(ds->cond != COND_AL) {
@@ -415,21 +421,6 @@ bool emit_branch(TCGContext *s, decode_t *ds)
     return true;
 }
 
-bool emit_normal(TCGContext *s, decode_t *ds) 
-{
-    if(ds->Rn == REG_PC) {
-        cemit_pc_rel(s, ds);
-    } else {
-        /* copy inst */
-        
-        fprintf(stderr, "s->code_ptr is %x.[%d@%s]\n", s->code_ptr, __LINE__, __FUNCTION__);
-        *s->code_ptr = *ds->pc;
-        s->code_ptr++;
-    }
-
-    return false;
-}
-
 bool emit_br_ind(TCGContext *s, decode_t *ds)
 {
     uint32_t inst, *target, *patch_pc;
@@ -437,7 +428,7 @@ bool emit_br_ind(TCGContext *s, decode_t *ds)
    
     AT_DBG("br_ind: pc = %p\n", ds->pc);
     if(ds->cond != COND_AL) {
-        patch_pc = s->code_ptr;
+        patch_pc = (uint32_t *)s->code_ptr;
         cemit_branch(s, NEG_COND(ds->cond), s->code_ptr, s->code_ptr);
 
         target = ds->pc + 1;
@@ -447,7 +438,7 @@ bool emit_br_ind(TCGContext *s, decode_t *ds)
     }
 
     inst = *(ds->pc);
-    Rt = find_free_reg(ds);
+    Rt = find_free_reg(ds->reg_list);
 
     /* push Rt */
     cemit_push(s, Rt);
@@ -456,7 +447,7 @@ bool emit_br_ind(TCGContext *s, decode_t *ds)
        change dest_reg from pc to Rt */
     if(ds->op != (INST_DATATRAN_BLK >> FUNC_POS)) {
         if(ds->Rn == REG_PC) {
-            cemit_mov_i32(s, Rt, (uint32_t)(ds->pc + 2));
+            cemit_mov_imm32(s, Rt, (uint32_t)(ds->pc + 2));
             inst = CLR_BITS(inst, RN_POS, REG_BITS) | (Rt << RN_POS);
         }
         inst = CLR_BITS(inst, RD_POS, REG_BITS) | (Rt << RD_POS);
@@ -475,46 +466,62 @@ bool emit_br_ind(TCGContext *s, decode_t *ds)
 
     return true;
 }
+#endif
 
-static void cemit_cpsr_all(TCGContext *s, Field sr_rs_all, Field rd)
+static bool cemit_normal(TCGContext *s, decode_t *ds) 
 {
+
     uint32_t inst;
-    inst = COND(COND_AL) | INST_DATAPRO_REG | sr_rs_all | rd;
+    int Rm_rep, Rn_rep, Rs_rep;
+
+    inst = ds->inst;
+    /* assume that there are 3 source registers at most.
+     * any src_reg may be REG_PC
+     */
+
+    if (ds->rs_num >= 1 && ds->Rm == REG_PC) {
+        Rm_rep = find_free_reg(ds->reg_list);
+        ds->reg_list |= 1 << Rm_rep;
+        cemit_push(s, Rm_rep);
+        cemit_mov_imm32(s, Rm_rep, (uint32_t)ds->pc + 2);
+        inst = inst & ~(0xf << ds->Rm_pos);
+        inst |= (Rm_rep << ds->Rm_pos);
+    }
+    if (ds->rs_num >= 2 && ds->Rn == REG_PC) {
+        Rn_rep = find_free_reg(ds->reg_list);
+        ds->reg_list |= 1 << Rn_rep;
+        cemit_push(s, Rn_rep);
+        cemit_mov_imm32(s, Rn_rep, (uint32_t)ds->pc + 2);
+        inst = inst & ~(0xf << ds->Rn_pos);
+        inst |= (Rn_rep << ds->Rn_pos);
+    }
+    if (ds->rs_num >= 3 && ds->Rs == REG_PC) {
+        Rs_rep = find_free_reg(ds->reg_list);
+        ds->reg_list |= 1 << Rs_rep;
+        cemit_push(s, Rs_rep);
+        cemit_mov_imm32(s, Rs_rep, (uint32_t)ds->pc + 2);
+        inst = inst & ~(0xf << ds->Rs_pos);
+        inst |= (Rs_rep << ds->Rs_pos);
+    }
+
+    /* copy inst */
+    fprintf(stderr, "s->code_ptr is %x.[%d@%s]\n", s->code_ptr, __LINE__, __FUNCTION__);
     code_emit32(s->code_ptr, inst);
+
+    if (ds->rs_num >= 3 && ds->Rs == REG_PC) {
+        cemit_pop(s, Rs_rep);
+    }
+    if (ds->rs_num >= 2 && ds->Rn == REG_PC) {
+        cemit_pop(s, Rn_rep);
+    }
+    if (ds->rs_num >= 1 && ds->Rm == REG_PC) {
+        cemit_pop(s, Rm_rep);
+    }
+
+    return false;
 }
 
-static void ld_st_gregs(TCGContext *s, Field st_ld, Field rd, Field rn, Field off)
-{
-    Field pre_post = INDEX_PRE;
-    Field wb = ADDR_NO_WB;
-    Field dir = ADDR_INC;
-    Field i = 0;
-    for (i = rd; i < 15; i++) {
-        cemit_datatran_imm(s, st_ld, pre_post, wb, dir, i, rn, off);
-    }
-}
-
-static void ld_st_cpsr(TCGContext *s, Field rs_sr, Field st_ld,  Field rd, Field rn, Field off)
-{
-    Field pre_post = INDEX_PRE;
-    Field wb = ADDR_NO_WB;
-    Field dir = ADDR_INC;
-    if (rs_sr == CPSR_STOR_ALL)
-    {
-    	// mrs
-        cemit_cpsr_all(s, rs_sr, rd << 12);
-        cemit_datatran_imm(s, st_ld, pre_post, wb, dir, rd, rn, off);
-    }
-    else
-    {
-    	// msr
-        cemit_datatran_imm(s, st_ld, pre_post, wb, dir, rd, rn, off);
-        cemit_cpsr_all(s, rs_sr, rd); 
-    }
-}
-
-
-static int write_pc(TCGContext *s, decode_t *ds, uint32_t rd_pos, uint32_t reg_free)
+static bool write_pc(TCGContext *s, decode_t *ds, uint32_t rd_pos, uint32_t reg_free)
 {
     uint32_t inst;
     uint32_t *patch_stub1, *patch_stub2;
@@ -543,9 +550,28 @@ static int write_pc(TCGContext *s, decode_t *ds, uint32_t rd_pos, uint32_t reg_f
     cemit_push(s, reg_free);
     code_emit32(s->code_ptr, inst);
     cemit_exit_tb_ind(s, reg_free);
+
+    return true;
 }
 
-static int disas_branch_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool try_emit_normal(TCGContext *s, decode_t *ds)
+{
+    uint32_t reg_free;
+
+    reg_free = find_free_reg(ds->reg_list);
+
+    if (ds->rd_num >= 1 && ds->Rd == REG_PC) {
+        return  write_pc(s, ds, ds->Rd_pos, reg_free);
+    } else if (ds->rd_num >=2 && ds->Rd2 == REG_PC) {
+        return  write_pc(s, ds, ds->Rd2_pos, reg_free);
+    } else {
+        return cemit_normal(s, ds);
+    }
+    
+    return false;
+}
+
+static bool xlate_branch_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
     /* there are 3 instructions in total.
      * bx rm
@@ -561,6 +587,7 @@ static int disas_branch_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
     inst = ds->inst;
     pc = ds->pc;
     tb = s->cur_tb;
+    ds->cond = BITS(inst, 28, 4);
 
     ds->Rm = BITS(inst, 0, 4);
     tb->may_change_state = 1;
@@ -568,11 +595,11 @@ static int disas_branch_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
 
     if (ds->cond != COND_AL) {
         patch_stub1 = s->code_ptr;
-        cemit_branch(s, ds->cond, s->code_ptr, NEED_PATCH); 
+        cemit_branch(s, ds->cond, s->code_ptr, s->code_ptr); 
 
         target = ds->pc + 4;
         patch_stub2 = s->code_ptr;
-        cemit_branch(s, COND_AL, s->code_ptr, NEED_PATCH);
+        cemit_branch(s, COND_AL, s->code_ptr, s->code_ptr);
         /* patch_stub2: */
         modify_br_off(patch_stub2, s->code_ptr);
         cemit_exit_tb(s, target);
@@ -591,16 +618,17 @@ static int disas_branch_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
             cemit_exit_tb_ind(s, ds->Rm);
         case 0x3:
             /* blx rm */
-            cemit_mov_i32(s, REG_LR, pc + 4);
+            cemit_mov_imm32(s, REG_LR, pc + 4);
             cemit_exit_tb_ind(s, ds->Rm);
         default:
             abort();
             break;
     }
 
+    return true;
 }
 
-static int disas_branch_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_branch_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
     /* there are 3 instructions in total:
      * blx imm
@@ -622,7 +650,7 @@ static int disas_branch_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
         /*blx imm*/
 
         tb->may_change_state = 1;
-        cemit_mov_i32(s, REG_LR, pc + 4);
+        cemit_mov_imm32(s, REG_LR, pc + 4);
         target = target | 0x1;
         cemit_exit_tb(s, target);// must change the cpu state
 
@@ -647,16 +675,18 @@ static int disas_branch_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
 
         if (BITS(inst, 24, 1) == 0x1) {
             /*bl imm*/
-            cemit_mov_i32(s, REG_LR, pc + 4);
+            cemit_mov_imm32(s, REG_LR, pc + 4);
             cemit_exit_tb(s, target);
         } else {
             /*b imm*/
             cemit_exit_tb(s, target);
         }
     }
+
+    return true;
 }
 
-static int disas_data_pro_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_data_pro_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
     /* the type of instructions is:
      * clz
@@ -676,59 +706,87 @@ static int disas_data_pro_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
     
     if (inst & 0x0ff000f0 == 0x01600010) {
         /* clz rd, rm */
-        Rd = BITS(inst, 12, 4);    
-        rd_pos = 12;
-        Rm = BITS(inst, 0, 4);
-        reg_free = find_free_reg((1 << Rd) | (1 << Rm));
+        ds->Rd = BITS(inst, 12, 4);    
+        ds->Rd_pos = 12;
+        ds->Rm = BITS(inst, 0, 4);
+        ds->Rm_pos = 0;
+        ds->rd_num = 1;
+        ds->rs_num = 1;
+        ds->reg_list = (1 << ds->Rd) | (1 << ds->Rm);
+        reg_free = find_free_reg(ds->reg_list);
     } else if (inst & 0x0f9000f0 == 0x01000050) {
         /* qadd qsub qdadd qdsub */
-        Rn = BITS(inst, 16, 4);    
-        Rd = BITS(inst, 12, 4);    
-        rd_pos = 12;
-        Rm = BITS(inst, 0, 4);
-        reg_free = find_free_reg((1 << Rd) | (1 << Rm) | (1 << Rn));
+        ds->Rd = BITS(inst, 12, 4);    
+        ds->Rd_pos = 12;
+        ds->Rm = BITS(inst, 0, 4);
+        ds->Rm_pos = 0;
+        ds->Rn = BITS(inst, 16, 4);    
+        ds->Rn_pos = 16;
+        ds->rd_num = 1;
+        ds->rs_num = 2;
+        ds->reg_list = (1 << ds->Rd) | (1 << ds->Rm) | (1 << ds->Rn);
+        reg_free = find_free_reg(ds->reg_list);
     } else if (inst & 0x0ff00090 == 0x01000080) {
         /* smul */
-        Rn = BITS(inst, 12, 4);    
-        Rd = BITS(inst, 16, 4);    
-        rd_pos = 16;
-        Rm = BITS(inst, 0, 4);
-        Rs = BITS(inst, 8, 4);
-        reg_free = find_free_reg((1 << Rd) | (1 << Rm) | (1 << Rn) | (1 << Rs));
+        ds->Rn = BITS(inst, 12, 4);    
+        ds->Rn_pos = 12;
+        ds->Rd = BITS(inst, 16, 4);    
+        ds->Rd_pos = 16;
+        ds->Rm = BITS(inst, 0, 4);
+        ds->Rm_pos = 0;
+        ds->Rs = BITS(inst, 8, 4);
+        ds->Rs_pos = 0;
+        ds->rd_num = 1;
+        ds->rs_num = 3;
+        ds->reg_list = (1 << ds->Rd) | (1 << ds->Rm) | (1 << ds->Rn) | (1 << ds->Rs);
+        reg_free = find_free_reg(ds->reg_list);
     } else if (inst & 0x0f0000f0 == 0x00000090) {
         /* multiply */
         /* Fixme: Rn may be REG_PC. */
-        Rn = BITS(inst, 12, 4);    
+        ds->Rn = BITS(inst, 12, 4);    
+        ds->Rn_pos = 12;
         Rd = BITS(inst, 16, 4);    
-        rd_pos = 16;
-        Rm = BITS(inst, 0, 4);
-        Rs = BITS(inst, 8, 4);
-        reg_free = find_free_reg((1 << Rd) | (1 << Rm) | (1 << Rn) | (1 << Rs));
+        ds->Rd_pos = 16;
+        ds->Rm = BITS(inst, 0, 4);
+        ds->Rm_pos = 0;
+        ds->Rs = BITS(inst, 8, 4);
+        ds->Rs_pos = 8;
+        ds->rd_num = 1;
+        ds->rs_num = 3;
+        ds->reg_list = (1 << ds->Rd) | (1 << ds->Rm) | (1 << ds->Rn) | (1 << ds->Rs);
+        reg_free = find_free_reg(ds->reg_list);
     } else if (BITS(inst, 4, 1) == 0x0) {
         /*data_pro_imm_shift*/
-        Rn = BITS(inst, 16, 4);
-        Rd = BITS(inst, 12, 4);
-        rd_pos = 12;
-        Rm = BITS(inst, 0, 4);
-        reg_free = find_free_reg((1 << Rd) | (1 << Rm) | (1 << Rn));
+        ds->Rd = BITS(inst, 12, 4);
+        ds->Rd_pos = 12;
+        ds->Rm = BITS(inst, 0, 4);
+        ds->Rm_pos = 0;
+        ds->Rn = BITS(inst, 16, 4);
+        ds->Rn_pos = 16;
+        ds->rd_num = 1;
+        ds->rs_num = 2;
+        ds->reg_list = (1 << ds->Rd) | (1 << ds->Rm) | (1 << ds->Rn) | (1 << ds->Rs);
+        reg_free = find_free_reg(ds->reg_list);
     } else if (BITS(inst, 4, 0) == 0x1) {
         /*data_pro_reg_shift*/
-        Rn = BITS(inst, 16, 4);
-        Rd = BITS(inst, 12, 4);
-        rd_pos = 12;
-        Rm = BITS(inst, 0, 4);
-        Rs = BITS(inst, 8, 4);
-        reg_free = find_free_reg((1 << Rd) | (1 << Rm) | (1 << Rn) | (1 << Rs));
+        ds->Rd = BITS(inst, 12, 4);
+        ds->Rd_pos = 12;
+        ds->Rm = BITS(inst, 0, 4);
+        ds->Rn = BITS(inst, 16, 4);
+        ds->Rs = BITS(inst, 8, 4);
+        ds->Rm_pos = 0;
+        ds->Rn_pos = 16;
+        ds->Rs_pos = 8;
+        ds->rd_num = 1;
+        ds->rs_num = 3;
+        ds->reg_list = (1 << ds->Rd) | (1 << ds->Rm) | (1 << ds->Rn) | (1 << ds->Rs);
+        reg_free = find_free_reg(ds->reg_list);
     }
 
-    if (Rd == REG_PC) {
-        write_pc(s, ds, rd_pos, reg_free);
-    } else {
-        emit_normal(s, ds);
-    }
+    return try_emit_normal(s, ds);
 }
 
-static disas_data_pro_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_data_pro_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
     /* the type of correlated instructions is:
      * general data_pro_imm
@@ -739,19 +797,18 @@ static disas_data_pro_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
     uint32_t rd_pos, reg_free;
 
     inst = ds->inst;
-    Rd = BITS(inst, 12, 4);
-    Rn = BITS(inst, 16, 4);
-    rd_pos = 12;
+    ds->Rd = BITS(inst, 12, 4);
+    ds->Rd_pos = 12;
+    ds->Rm = BITS(inst, 16, 4);
+    ds->Rm_pos = 16;
+    ds->rd_num = 1;
+    ds->rs_num = 1;
+    ds->reg_list = (1 << ds->Rd) | (1 << ds->Rm);
 
-    if (Rd == REG_PC) {
-        reg_free = find_free_reg((1 << Rd) | (1 << Rn));
-        write_pc(s, ds, rd_pos, reg_free);
-    } else {
-        emit_normal(s, ds);
-    }
+    return try_emit_normal(s, ds);
 }
 
-static disas_data_tra_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_data_tra_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
     /* the type of correlated instructions is:
      * extra ld/st
@@ -769,58 +826,58 @@ static disas_data_tra_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
     ds->Rd_pos = 12;
     ds->Rn = BITS(inst, 16, 4);
     ds->Rm = BITS(inst, 0, 4);
+    ds->Rn_pos = 16;
+    ds->Rm_pos = 0;
+    ds->rd_num = 1;
+    ds->rs_num = 2;
+    ds->reg_list = (1 << ds->Rd) | (1 << ds->Rm) | (1 << ds->Rn);
     ds->Rl = BITS(inst, 0, 15);
+    if (BITS(inst, 20, 1) == 0x0) {
+        ds->rd_num = 0;
+        ds->Rs = ds->Rd;
+        ds->Rs_pos = 12;
+        ds->rs_num = 3;
+    }
 
     if(index == 0x0) {
         /* extra ld/st */
         if ((inst & 0xc0) == 0xc0 && BITS(inst, 20, 1) == 0x1) {
             /* ld */
-            if (ds->Rd == REG_PC) {
-                reg_free = find_free_reg((1 << ds->Rd) | (1 << ds->Rn));
-                write_pc(s, ds, ds->Rd_pos, reg_free);
-            } else {
-                emit_normal(s, ds);
-            }
+            return try_emit_normal(s, ds);
         } else if ((inst & 0xf0) == 0xf0) {
             /* ld double */
             if (ds->Rd == REG_LR) {
                 AT_DBG(" ld double. Rd cannot be lr\n");
                 abort();
             } else {
-                emit_normal(s, ds);
+                return cemit_normal(s, ds);
             }
         } else if (BITS(inst, 20, 1) == 0x1) {
             /* ld */
-            if (ds->Rd == REG_PC) {
-                reg_free = find_free_reg((1 << ds->Rd) | (1 << ds->Rn) | (1 << ds->Rm));
-                write_pc(s, ds, ds->Rd_pos, reg_free);
-            } else {
-                emit_normal(s, ds);
-            }
+            return try_emit_normal(s, ds);
         } else {
             /* st */
-            emit_normal(s, ds);
+            return cemit_normal(s, ds);
         }
     } else if (index == 0x3) {
         /* ld/st reg */
         if (BITS(inst, 20, 1) == 0x1) {
             /* ld */
             s->cur_tb->may_change_state = 1;
-            if (ds->Rd == REG_PC) {
-                reg_free = find_free_reg((1 << ds->Rd) | (1 << ds->Rn) | (1 << ds->Rm));
-                write_pc(s, ds, ds->Rd_pos, reg_free);
-            } else {
-                emit_normal(s, ds);
-            }
-        } else {
-            emit_normal(s, ds);
         }
+        return try_emit_normal(s, ds);
     } else if (index == 0x4) {
         /* muti ld/st */
-        if (BITS(inst, 20, 1) == 0x1) {
-            /* ldm */
-            if (BITS(ds->Rl, 14, 1) == 0x1) {
-
+        /* ldm/stm/push/pop */
+        ds->Rm = BITS(inst, 16, 4);
+        ds->Rm_pos = 16;
+        ds->reg_list = BITS(inst, 0, 16) | (1 << ds->Rm);
+        ds->rd_num = 0; 
+        ds->rs_num = 1; 
+        if (inst & (1 << 20)) {
+            /* ldm/pop */
+            if (inst & (1 << 15)) {
+                /* write pc */
                 uint32_t *patch_stub1, *patch_stub2;
                 uint32_t target;
 
@@ -841,23 +898,28 @@ static disas_data_tra_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
                     modify_br_off(patch_stub1, s->code_ptr);
                 }
 
-                code_emit32(s->code_ptr, (inst & ~(1 << 14)));
-                reg_free = find_free_reg((1 << ds->Rn));
+                ds->inst = (inst & !(1 << 15));
+                cemit_normal(s, ds);
+                reg_free = find_free_reg((1 << ds->Rm));
                 cemit_push(s, reg_free);
-                code_emit32(s->code_ptr, (inst & ~((1 << 15) - 1) | (1 << reg_free)));
+                ds->inst = (inst & ~((1 << 15) - 1) | (1 << reg_free));
+                cemit_normal(s, ds);
                 cemit_exit_tb_ind(s, reg_free);
+                return true;
             } else {
-                emit_normal(s, ds);
-            }
+                return cemit_normal(s, ds); 
+            }    
+
         } else {
-            emit_normal(s, ds);
-        }
+            /* stm/push */
+            return cemit_normal(s, ds); 
+        }    
 
     }
 
 }
 
-static disas_data_tra_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_data_tra_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
     /* the type of correlated instructions is:
      * general ld/st imm offset
@@ -870,25 +932,27 @@ static disas_data_tra_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
     inst = ds->inst;
 
     ds->Rd = BITS(inst, 12, 4);
-    ds->Rn = BITS(inst, 16, 4);
-    ds->Rd_pos =12;
+    ds->Rm = BITS(inst, 16, 4);
+    ds->Rd_pos = 12;
+    ds->Rm_pos = 16;
+    ds->rs_num = 1;
+    ds->rd_num = 1;
+    ds->reg_list = (1 << ds->Rd) | (1 << ds->Rm);
     
     if (BITS(inst, 20, 1) == 0x1) {
         /* ld */
-        if (ds->Rd == REG_PC) {
-            reg_free = find_free_reg((1 << ds->Rn));
-            write_pc(s, ds, ds->Rd_pos, reg_free);
-        } else {
-            emit_normal(s, ds);
-        }
-
+        return try_emit_normal(s, ds);
     } else {
         /* st */
-        emit_normal(s, ds);
+        ds->Rn = ds->Rd;
+        ds->Rn_pos = 12;
+        ds->rs_num = 2;
+        return cemit_normal(s, ds);
     }
+    return false;
 }
 
-static disas_state_tra_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_state_tra_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
     /* the type of correlated instructions is:
      * msr reg
@@ -913,7 +977,7 @@ static disas_state_tra_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
         if (Rd == REG_PC) {
             write_pc(s, ds, rd_pos, reg_free);
         } else {
-            emit_normal(s, ds);
+            cemit_normal(s, ds);
         }
     } else {
         /*msr cpsr, rm*/
@@ -921,7 +985,7 @@ static disas_state_tra_reg(CPUARMState *env, TCGContext *s, decode_t *ds)
         cemit_exit_tb_msr(s, ds, Rm);
     }
 }
-static disas_state_tra_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_state_tra_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
     /* the type of correlated instructions is:
      * msr cpsr imm
@@ -938,14 +1002,19 @@ static disas_state_tra_imm(CPUARMState *env, TCGContext *s, decode_t *ds)
     cemit_exit_tb_msr(s, ds, reg_free);
 }
 
-static disas_exception(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_exception(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
-    emit_normal(s, ds);
+    /* copy inst */
+    fprintf(stderr, "s->code_ptr is %x.[%d@%s]\n", s->code_ptr, __LINE__, __FUNCTION__);
+    code_emit32(s->code_ptr, ds->inst);
+    return false;
 }
 
-static disas_coprocessor(CPUARMState *env, TCGContext *s, decode_t *ds)
+static bool xlate_coprocessor(CPUARMState *env, TCGContext *s, decode_t *ds)
 {
-    emit_normal(s, ds);
+    /* copy inst */
+    fprintf(stderr, "s->code_ptr is %x.[%d@%s]\n", s->code_ptr, __LINE__, __FUNCTION__);
+    code_emit32(s->code_ptr, ds->inst);
 }
 
 void disas_arm_inst(CPUARMState *env, TCGContext *s, decode_t *ds)
@@ -1019,7 +1088,7 @@ void disas_arm_inst(CPUARMState *env, TCGContext *s, decode_t *ds)
             case 0x5:
                 if ((inst & 0x0e000000) == 0x0a000000) {
                     /* blx imm */
-                    ds->func = disas_branch_imm;
+                    ds->func = xlate_branch_imm;
                 } else {
                     abort();
                 }
@@ -1057,19 +1126,19 @@ void disas_arm_inst(CPUARMState *env, TCGContext *s, decode_t *ds)
                     case 0x0:
                         if (BITS(inst, 21, 1) == 0x0) {
                             /*mrs rd, cpsr*/
-                            ds->func = disas_state_tra_reg;
+                            ds->func = xlate_state_tra_reg;
                         } else {
                             /*msr cpsr, rd*/
-                            ds->func = disas_state_tra_reg;
+                            ds->func = xlate_state_tra_reg;
                         }
                         break;
                     case 0x1:
                         if (BITS(inst, 21, 2) == 0x1) {
                             /*bx rm*/
-                            ds->func = disas_branch_reg;
+                            ds->func = xlate_branch_reg;
                         }else if(BITS(inst, 21, 2) == 0x3) {
                             /*clz rm*/
-                            ds->func = disas_data_pro_reg;
+                            ds->func = xlate_data_pro_reg;
                         } else {
                             abort();
                         }
@@ -1077,7 +1146,7 @@ void disas_arm_inst(CPUARMState *env, TCGContext *s, decode_t *ds)
                     case 0x2:
                         if (BITS(inst, 21, 2) == 0x1) {
                             /*bxj rm*/
-                            ds->func = disas_branch_reg;
+                            ds->func = xlate_branch_reg;
                         } else {
                             abort();
                         }
@@ -1085,7 +1154,7 @@ void disas_arm_inst(CPUARMState *env, TCGContext *s, decode_t *ds)
                     case 0x3:
                         if (BITS(inst, 21, 2) == 0x1) {
                             /*blx rm*/
-                            ds->func = disas_branch_reg;
+                            ds->func = xlate_branch_reg;
                         } else {
                             abort();
                         }
@@ -1100,14 +1169,14 @@ void disas_arm_inst(CPUARMState *env, TCGContext *s, decode_t *ds)
                                 /*qdadd rd, rn, rm*/
                             case 0x3:
                                 /*qdsub rd, rn, rm*/
-                                ds->func = disas_data_pro_reg;
+                                ds->func = xlate_data_pro_reg;
                             default:
                                 break;
                         }
                     case 0x7:
                         if (BITS(inst, 21, 2) == 0x1) {
                             /*bkpt imm*/
-                            ds->func = disas_exception;
+                            ds->func = xlate_exception;
                         } else {
                             abort();
                         }
@@ -1130,7 +1199,7 @@ void disas_arm_inst(CPUARMState *env, TCGContext *s, decode_t *ds)
                                     /*SMLAL<x><y>*/
                                 case 0x3:
                                     /*SMUL<x><y>*/
-                                    ds->func = disas_data_pro_reg;
+                                    ds->func = xlate_data_pro_reg;
 
                                 default:
                                     abort();
@@ -1141,41 +1210,42 @@ void disas_arm_inst(CPUARMState *env, TCGContext *s, decode_t *ds)
                 } /*end of switch*/
             } else if (BITS(inst, 24, 1) == 0x0 && BITS(inst, 4, 4) == 0x9) {
                 /*multiply instructions*/
-                ds->func = disas_data_pro_reg;
+                ds->func = xlate_data_pro_reg;
             } else if (BITS(inst, 7, 1) == 0x1 && BITS(inst, 4, 1) == 0x1) {
                 /*extra load/store inst*/
-                ds->func = disas_data_tra_reg;
+                ds->func = xlate_data_tra_reg;
             } else if (BITS(inst, 4, 1) == 0x0) {
                 /*data_pro_imm_shift*/
-                ds->func = disas_data_pro_reg;
+                ds->func = xlate_data_pro_reg;
             } else if (BITS(inst, 4, 0) == 0x1) {
                 /*data_pro_reg_shift*/
-                ds->func = disas_data_pro_reg;
+                ds->func = xlate_data_pro_reg;
             } else {
                 abort();
             }
             
+            break;
         case 0x1:
             if (BITS(inst, 23, 2) == 0x2 && BITS(inst, 20, 2) == 0x2) {
                 /*msr cpsr, imm */
-                ds->func = disas_state_tra_imm;
+                ds->func = xlate_state_tra_imm;
             } else if(BITS(inst, 23, 2) == 0x2 && BITS(inst, 20, 2) == 0x0) {
                 abort();
             } else {
                 /*data_pro_imm*/
-                ds->func = disas_data_pro_imm;
+                ds->func = xlate_data_pro_imm;
             }
 
             break;
 
         case 0x2:
             /*ld/st imm*/
-            ds->func = disas_data_tra_imm;
+            ds->func = xlate_data_tra_imm;
             break;    
         case 0x3:
             if (BITS(inst, 4, 1) == 0x0) {
                 /*ld/st reg*/
-                ds->func = disas_data_tra_reg;
+                ds->func = xlate_data_tra_reg;
             } else {
                 /*media inst*/
                 /*architecturally undefined*/
@@ -1184,18 +1254,18 @@ void disas_arm_inst(CPUARMState *env, TCGContext *s, decode_t *ds)
             break;
         case 0x4:
             /*ld/st mutiple*/
-            ds->func = disas_data_tra_reg;
+            ds->func = xlate_data_tra_reg;
             break;
         case 0x5:
             /*b/bl*/
-            ds->func = disas_branch_imm;
+            ds->func = xlate_branch_imm;
         case 0x6:
             /*coprocessor*/
-            ds->func = disas_coprocessor;
+            ds->func = xlate_coprocessor;
         case 0x7:
             if (BITS(inst, 24, 1) == 0x1) {
                 /*swi*/
-                ds->func = disas_exception;
+                ds->func = xlate_exception;
             } else if (BITS(inst, 24, 1) == 0x0 && BITS(inst, 4, 1) == 0x0) {
                 /*coprocessor data_pro*/
             } else if (BITS(inst, 24, 1) == 0x0 && BITS(inst, 4, 1) == 0x1) {
@@ -1212,6 +1282,46 @@ void disas_arm_inst(CPUARMState *env, TCGContext *s, decode_t *ds)
 illegal_op:
     abort();
 }
+
+
+static void cemit_cpsr_all(TCGContext *s, Field sr_rs_all, Field rd)
+{
+    uint32_t inst;
+    inst = COND(COND_AL) | INST_DATAPRO_REG | sr_rs_all | rd;
+    code_emit32(s->code_ptr, inst);
+}
+
+static void ld_st_gregs(TCGContext *s, Field st_ld, Field rd, Field rn, Field off)
+{
+    Field pre_post = INDEX_PRE;
+    Field wb = ADDR_NO_WB;
+    Field dir = ADDR_INC;
+    Field i = 0;
+    for (i = rd; i < 15; i++) {
+        cemit_datatran_imm(s, st_ld, pre_post, wb, dir, i, rn, off);
+    }
+}
+
+static void ld_st_cpsr(TCGContext *s, Field rs_sr, Field st_ld,  Field rd, Field rn, Field off)
+{
+    Field pre_post = INDEX_PRE;
+    Field wb = ADDR_NO_WB;
+    Field dir = ADDR_INC;
+    if (rs_sr == CPSR_STOR_ALL)
+    {
+    	// mrs
+        cemit_cpsr_all(s, rs_sr, rd << 12);
+        cemit_datatran_imm(s, st_ld, pre_post, wb, dir, rd, rn, off);
+    }
+    else
+    {
+    	// msr
+        cemit_datatran_imm(s, st_ld, pre_post, wb, dir, rd, rn, off);
+        cemit_cpsr_all(s, rs_sr, rd); 
+    }
+}
+
+
 
 static void preserve_host_state(CPUARMState *env, TCGContext *s)
 {

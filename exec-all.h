@@ -173,6 +173,7 @@ struct TranslationBlock {
     uint32_t hcode_size;
 
     uint32_t exit_tb_nopush;
+    uint32_t is_pop_pc;
     uint32_t may_change_state;
     uint32_t set_cpsr;
 };

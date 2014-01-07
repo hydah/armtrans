@@ -73,6 +73,9 @@ int ARM_gen_code(CPUArchState *env, TCGContext *s, TranslationBlock *tb)
 
     do {
         /*should decide current cpu state: thumb or arm*/
+        if (ds->pc == 0x00025574) {
+            fprintf(stderr, "ds->pc is %x\n", ds->pc);
+        }
         if (env->thumb) {
             disas_thumb_inst(env, s, ds);
         } else {
