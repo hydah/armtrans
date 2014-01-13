@@ -58,11 +58,15 @@ int ARM_gen_code(CPUArchState *env, TCGContext *s, TranslationBlock *tb)
 
     s->cur_tb = tb;
     s->code_ptr = (uint32_t *)tb->tc_ptr;
-    fprintf(stderr, "s->code_ptr is %x.[%d@%s]\n", s->code_ptr, __LINE__, __FUNCTION__);
-    fprintf(stderr, "tb->pc is %x.[%d@%s]\n", tb->pc, __LINE__, __FUNCTION__);
+    s->is_jmp = 0;
+    s->condexec_mask = 0;
+    s->condexec_cond = 0;
     pc = (Inst *)tb->pc;
     temp = (uint8_t *)tb->pc;
     cc_ptr_start = s->code_ptr;
+
+    fprintf(stderr, "s->code_ptr is %x.[%d@%s]\n", s->code_ptr, __LINE__, __FUNCTION__);
+    fprintf(stderr, "tb->pc is %x.[%d@%s]\n", tb->pc, __LINE__, __FUNCTION__);
     fprintf(stderr, "tb->pc is %x.[%d@%s]\n", *temp++, __LINE__, __FUNCTION__);
     fprintf(stderr, "tb->pc is %x.[%d@%s]\n", *temp++, __LINE__, __FUNCTION__);
     fprintf(stderr, "tb->pc is %x.[%d@%s]\n", *temp++, __LINE__, __FUNCTION__);
@@ -73,17 +77,41 @@ int ARM_gen_code(CPUArchState *env, TCGContext *s, TranslationBlock *tb)
 
     do {
         /*should decide current cpu state: thumb or arm*/
-        if (ds->pc == 0x00025574) {
+        if (ds->pc == 0x00010862) {
             fprintf(stderr, "ds->pc is %x\n", ds->pc);
         }
         if (env->thumb) {
             disas_thumb_inst(env, s, ds);
+
         } else {
             disas_arm_inst(env, s, ds);
         }
 
         retcode = ds->func(env, s, ds);
         ds->pc = ds->pc + (4 >> env->thumb);
+
+        if (env->thumb) {
+            /* caculate the cond and mask */
+            if (s->condexec_mask) {
+                s->condexec_cond = (s->condexec_cond & 0xe)
+                                    |((s->condexec_mask >> 4) & 0x1);
+                s->condexec_mask = (s->condexec_mask << 1) & 0x1f;
+
+                if (s->condexec_mask == 0)
+                    s->condexec_cond = 0;
+            }
+
+            if (s->condjmp && !s->is_jmp) {
+                cemit_set_label(env, s, ds);
+                s->condjmp = 0;
+                s->is_jmp = 0;
+            } else if (s->condjmp && s->is_jmp) {
+                cemit_set_label(env, s, ds);
+                cemit_set_brcond(env, s, ds);
+                s->condjmp = 0;
+                s->is_jmp = 0;
+            }
+        }
     } while(retcode != true);
 
     cc_size = s->code_ptr - cc_ptr_start;

@@ -46,6 +46,13 @@ typedef uint64_t tcg_target_ulong;
 #error unsupported
 #endif
 
+enum tb_type {
+    DATA_TRA = 1,
+    DATA_PRO,
+    BRANCH,
+    EXCEPTION,
+};
+
 
 typedef struct TCGContext TCGContext;
 
@@ -62,6 +69,11 @@ struct TCGContext {
     uint8_t *code_ptr;
     uint8_t *tb_ret_addr;
     bool is_pop_pc;
+    int condexec_mask;
+    int condexec_cond;
+    int condjmp;
+    int condlabel;
+    int is_jmp;
 };
 
 extern TCGContext tcg_ctx;

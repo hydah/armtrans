@@ -8,14 +8,16 @@ struct reg_desc {
     uint32_t reg;
     uint32_t reg_pos;
 };
+enum INST_TYPE {
+    ARM_INST = 1,
+    THUMB_INST,
+    THUMB2_INST,
+};
 
 typedef struct decode_s decode_t;
 struct decode_s {
-	uint32_t cond;
-    uint32_t condexec_mask;
-    uint32_t condexec_cond;
-    uint32_t condmp;
     uint32_t index;
+    uint32_t cond;
 	uint32_t op;
     uint32_t inst;
 
@@ -55,6 +57,7 @@ struct decode_s {
     uint32_t rd_num;
     uint32_t rs_num;
     uint32_t reg_list;
+    int inst_type;
 };
 
 enum OP_NAME {

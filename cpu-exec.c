@@ -181,7 +181,7 @@ int cpu_exec(CPUArchState *env)
                  * the cpu mode dynamicly
                  */
                 tc_ptr = (uint32_t)tb->tc_ptr | env->thumb;
-                if (tb->pc == 0x0001085a) {
+                if (tb->pc == 0x0003fcd8) {
                     fprintf(stderr, "tb->pc is 0x00011824. @%s\n", __FUNCTION__);
                 }
                 /* execute the generated code */
@@ -190,7 +190,8 @@ int cpu_exec(CPUArchState *env)
                 /* handle cc_stub */
                 *env->tpc = cc_stub->next_pc & ~1;
                 env->prev_tb = cc_stub->prev_tb;
-                if (((struct TranslationBlock *)env->prev_tb)->may_change_state) {
+                if (((struct TranslationBlock *)env->prev_tb)->may_change_state &&
+                     ((struct TranslationBlock *)env->prev_tb)->change_state_addr == cc_stub) {
                     env->thumb = cc_stub->next_pc & 1;
                 }
                 prev_tb = env->prev_tb;
